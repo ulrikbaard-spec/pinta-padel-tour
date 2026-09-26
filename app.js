@@ -573,10 +573,26 @@
                 console.warn('Kunde inte läsa turneringsdata från hash:', err);
             }
         } else if (tourneyId) {
-            const found = appState.tournaments.find(t => t.id === tourneyId);
-            if (found) {
-                appState.activeTournamentId = tourneyId;
+            let found = appState.tournaments.find(t => t.id === tourneyId);
+            if (!found) {
+                const tourneyName = urlParams.get('turnering') || urlParams.get('namn') || urlParams.get('name') || urlParams.get('n') || 'Pinta Padel Tour';
+                const orgNameParam = urlParams.get('org') || urlParams.get('arrangor');
+                found = {
+                    id: tourneyId,
+                    name: decodeURIComponent(tourneyName),
+                    format: urlParams.get('f') || 'option1',
+                    pointSystem: urlParams.get('p') || 'games',
+                    status: 'lobby',
+                    isDrawn: false,
+                    players: [],
+                    rounds: [],
+                    createdAt: new Date().toISOString(),
+                    organizer: orgNameParam ? { id: 'org_' + tourneyId, name: decodeURIComponent(orgNameParam) } : null
+                };
+                appState.tournaments.push(found);
             }
+            appState.activeTournamentId = tourneyId;
+            saveState();
         }
 
         // Om en arrangörsnyckel skickas i URL:en (?key=adm_xxx eller ?admin=ulrik) -> Lås upp full arrangörsbehörighet!
@@ -1131,25 +1147,16 @@
     function getInviteUrl(tourney) {
         if (!tourney) return window.location.href;
 
-        const payload = {
-            id: tourney.id,
-            name: tourney.name,
-            format: tourney.format,
-            pointSystem: tourney.pointSystem,
-            status: tourney.status,
-            players: tourney.players,
-            createdAt: tourney.createdAt,
-            organizer: tourney.organizer,
-            adminCode: tourney.adminCode
-            // adminKey utelämnas medvetet från publika länkar för säkerhet
-        };
-        const encoded = btoa(encodeURIComponent(JSON.stringify(payload)));
-        
         const base = window.location.origin && !window.location.origin.startsWith('file')
             ? `${window.location.origin}${window.location.pathname}`
             : window.location.href.split('?')[0].split('#')[0];
 
-        return `${base}?t=${tourney.id}#invite=${encoded}`;
+        const cleanName = encodeURIComponent(tourney.name || 'Padelturnering');
+        const orgParam = (tourney.organizer && tourney.organizer.name) 
+            ? `&org=${encodeURIComponent(tourney.organizer.name)}` 
+            : '';
+
+        return `${base}?t=${tourney.id}&turnering=${cleanName}${orgParam}`;
     }
 
     /**
@@ -1160,14 +1167,34 @@
         const base = window.location.origin && !window.location.origin.startsWith('file')
             ? `${window.location.origin}${window.location.pathname}`
             : window.location.href.split('?')[0].split('#')[0];
-        return `${base}?t=${tourney.id}&key=${tourney.adminKey || ''}`;
+        const cleanName = encodeURIComponent(tourney.name || 'Padelturnering');
+        return `${base}?t=${tourney.id}&turnering=${cleanName}&key=${tourney.adminKey || ''}`;
     }
 
     function getInviteMessageText(tourney) {
         const url = getInviteUrl(tourney);
         const freeSlots = Math.max(0, 8 - (tourney ? tourney.players.length : 0));
+        const tourneyName = (tourney && tourney.name) ? tourney.name : 'Turnering';
         const orgName = (tourney && tourney.organizer && tourney.organizer.name) ? tourney.organizer.name : 'Arrangören';
-        return `🎾 Hej! ${orgName} bjuder in dig till Pinta Padel Tour: "${tourney ? tourney.name : 'Turnering'}"!\nDet finns 8 platser totalt (${freeSlots} st kvar). Lottning genomförs så fort alla 8 platser är tagna.\n\nKlicka på länken och fyll bara i ditt namn för att ta en plats:\n${url}`;
+        return `🎾 Hej! ${orgName} bjuder in dig till Pinta Padel Tour: "${tourneyName}"!\n` +
+               `Det finns 8 platser totalt (${freeSlots} st kvar). Lottning genomförs så fort alla 8 platser är tagna.\n\n` +
+               `Klicka på länken och fyll bara i ditt namn för att ta en plats:\n${url}`;
+    }
+
+    function updateDocumentMetadata(tourney) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tourneyName = (tourney && tourney.name) 
+            ? tourney.name 
+            : (urlParams.get('turnering') || urlParams.get('namn') || urlParams.get('name') || '');
+
+        if (tourneyName) {
+            const cleanTitle = decodeURIComponent(tourneyName);
+            document.title = `🎾 ${cleanTitle} | Pinta Padel Tour`;
+            const ogTitle = document.getElementById('ogTitle');
+            if (ogTitle) ogTitle.setAttribute('content', `🎾 Inbjudan: ${cleanTitle} – Pinta Padel Tour`);
+            const twTitle = document.getElementById('twTitle');
+            if (twTitle) twTitle.setAttribute('content', `🎾 Inbjudan: ${cleanTitle} – Pinta Padel Tour`);
+        }
     }
 
     function shareViaMessenger(tourney) {
@@ -1321,6 +1348,8 @@
 
     function renderApp() {
         const tourney = getActiveTournament();
+
+        updateDocumentMetadata(tourney);
 
         const elBannerOrg = document.getElementById('bannerOrganizerBadge');
         const elBannerName = document.getElementById('bannerOrganizerName');
@@ -2376,17 +2405,42 @@
             copyTextToClipboard(url).then(() => {
                 const btn1 = document.getElementById('btnCopyInviteLink');
                 const btn2 = document.getElementById('btnCopyShareUrl');
-                if (btn1) btn1.textContent = 'Kopierad! ✓';
-                if (btn2) btn2.textContent = 'Kopierad! ✓';
+                if (btn1) btn1.textContent = 'Länk kopierad! ✓';
+                if (btn2) btn2.textContent = 'Länk kopierad! ✓';
                 setTimeout(() => {
-                    if (btn1) btn1.innerHTML = '<span>📋</span> Kopiera inbjudningslänk';
-                    if (btn2) btn2.textContent = 'Kopiera';
+                    if (btn1) btn1.innerHTML = '<span>📋</span> Kopiera länk';
+                    if (btn2) btn2.textContent = 'Kopiera länk';
                 }, 2000);
             });
         }
 
-        document.getElementById('btnCopyInviteLink').addEventListener('click', handleCopyInviteLink);
-        document.getElementById('btnCopyShareUrl').addEventListener('click', handleCopyInviteLink);
+        function handleCopyInviteText() {
+            const tourney = getActiveTournament();
+            if (!tourney) return;
+            const text = getInviteMessageText(tourney);
+            copyTextToClipboard(text).then(() => {
+                const btn1 = document.getElementById('btnCopyInviteText');
+                const btn2 = document.getElementById('btnModalCopyInviteText');
+                if (btn1) btn1.textContent = 'Inbjudan kopierad! ✓';
+                if (btn2) btn2.textContent = 'Inbjudan kopierad! ✓';
+                setTimeout(() => {
+                    if (btn1) btn1.innerHTML = '<span>✉️</span> Kopiera inbjudningstext';
+                    if (btn2) btn2.innerHTML = '<span>✉️</span> Kopiera färdig inbjudningstext med turneringsnamn & länk';
+                }, 2000);
+            });
+        }
+
+        const btnCopyInviteLink = document.getElementById('btnCopyInviteLink');
+        if (btnCopyInviteLink) btnCopyInviteLink.addEventListener('click', handleCopyInviteLink);
+
+        const btnCopyShareUrl = document.getElementById('btnCopyShareUrl');
+        if (btnCopyShareUrl) btnCopyShareUrl.addEventListener('click', handleCopyInviteLink);
+
+        const btnCopyInviteText = document.getElementById('btnCopyInviteText');
+        if (btnCopyInviteText) btnCopyInviteText.addEventListener('click', handleCopyInviteText);
+
+        const btnModalCopyInviteText = document.getElementById('btnModalCopyInviteText');
+        if (btnModalCopyInviteText) btnModalCopyInviteText.addEventListener('click', handleCopyInviteText);
 
         // Matchresultat & Steppers
         document.getElementById('btnSaveScore').addEventListener('click', () => {

@@ -3,8 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pinta Padel Tour – Turneringsmotor & Lottning</title>
-    <meta name="description" content="Officiell turneringsapp för Pinta Padel Tour. Inbjudningslänkar, inloggning för arrangör och spelare, radering och återställning av turneringar, manuell lottning och liveresultat för 8 spelare.">
+    <title id="pageTitle">Pinta Padel Tour – Turneringsmotor & Lottning</title>
+    <meta name="description" id="metaDescription" content="Officiell turneringsapp för Pinta Padel Tour. Inbjudningslänkar, inloggning för arrangör och spelare, radering och återställning av turneringar, manuell lottning och liveresultat för 8 spelare.">
+    
+    <!-- Open Graph & Meta för länkbeskrivning och förhandsvisning i Messenger, WhatsApp & SMS -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Pinta Padel Tour">
+    <meta property="og:title" id="ogTitle" content="Pinta Padel Tour – Padelturnering för 8 spelare">
+    <meta property="og:description" id="ogDesc" content="🎾 Anmäl dig till padelturneringen! Klicka på länken och fyll i ditt namn för att ta en plats.">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" id="twTitle" content="Pinta Padel Tour – Padelturnering för 8 spelare">
+    <meta name="twitter:description" id="twDesc" content="🎾 Anmäl dig till padelturneringen! Klicka på länken och fyll i ditt namn för att ta en plats.">
     <link rel="stylesheet" href="./style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎾</text></svg>">
 </head>
@@ -234,7 +243,10 @@
                                 <span>📱</span> WhatsApp
                             </button>
                             <button type="button" class="btn btn-secondary" id="btnCopyInviteLink">
-                                <span>📋</span> Kopiera inbjudningslänk
+                                <span>📋</span> Kopiera länk
+                            </button>
+                            <button type="button" class="btn btn-secondary" id="btnCopyInviteText">
+                                <span>✉️</span> Kopiera inbjudningstext
                             </button>
                         </div>
                     </div>
@@ -583,13 +595,16 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label" for="shareUrlInput">Eller kopiera inbjudningslänken till spelarna</label>
+                <label class="form-label" for="shareUrlInput">Kort inbjudningslänk till spelarna</label>
                 <div style="display: flex; gap: 8px;">
                     <input type="text" id="shareUrlInput" class="form-control" readonly style="font-size: 12.5px; color: var(--accent-blue); background: var(--bg-main);">
                     <button type="button" class="btn btn-primary" id="btnCopyShareUrl" style="white-space: nowrap;">
-                        Kopiera
+                        Kopiera länk
                     </button>
                 </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnModalCopyInviteText" style="width: 100%; margin-top: 8px;">
+                    <span>✉️</span> Kopiera färdig inbjudningstext med turneringsnamn & länk
+                </button>
             </div>
 
             <!-- Arrangörsåtkomst (för arrangören att öppna på annan enhet) -->
