@@ -1509,9 +1509,9 @@
                         <div class="slot-avatar">${escapeHtml(avatarLetter)}</div>
                         <div class="slot-info">
                             <div class="slot-name">
-                                ${escapeHtml(pName)} 
-                                ${isSelf ? '<span style="font-size: 11px; background: var(--primary); color: #000; padding: 2px 6px; border-radius: 10px; font-weight: 700; margin-left: 6px;">DU</span>' : ''}
-                                ${isThisPlayerOrganizer ? '<span style="font-size: 11px; background: rgba(255, 183, 3, 0.2); color: #ffb703; border: 1px solid rgba(255, 183, 3, 0.45); padding: 2px 7px; border-radius: 10px; font-weight: 800; margin-left: 6px;" title="Turneringens arrangör">👑 Arrangör</span>' : ''}
+                                <span class="slot-player-text">${escapeHtml(pName)}</span>
+                                ${isSelf ? '<span class="badge-du">DU</span>' : ''}
+                                ${isThisPlayerOrganizer ? '<span class="badge-org-pill" title="Turneringens arrangör">👑 Arrangör</span>' : ''}
                             </div>
                             <div class="slot-meta">
                                 <span>Plats ${i + 1}</span>
@@ -1544,7 +1544,7 @@
                     <div class="slot-left">
                         <div class="slot-avatar vacant">${i + 1}</div>
                         <div class="slot-info">
-                            <div class="slot-name" style="color: var(--text-muted);">Plats ${i + 1}: Ledig</div>
+                            <div class="slot-vacant-text">Plats ${i + 1}: Ledig</div>
                             <div class="slot-meta">Väntar på anmälan...</div>
                         </div>
                     </div>
