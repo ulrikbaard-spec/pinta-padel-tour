@@ -1145,6 +1145,32 @@ body {
     letter-spacing: 0.05em;
 }
 
+.pin-badge.own-pin {
+    background: rgba(0, 230, 118, 0.18);
+    border: 1px solid rgba(0, 230, 118, 0.5);
+    color: var(--primary);
+    box-shadow: 0 0 8px rgba(0, 230, 118, 0.2);
+}
+
+.pin-badge.admin-view {
+    background: rgba(255, 170, 0, 0.14);
+    border: 1px solid rgba(255, 170, 0, 0.4);
+    color: #ffa726;
+}
+
+.status-badge-ready {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-muted);
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+}
+
 .pin-display-box {
     background: var(--bg-card);
     border: 2px solid var(--primary);

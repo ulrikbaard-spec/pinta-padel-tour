@@ -575,7 +575,7 @@
 
             <!-- Arrangörsåtkomst (för arrangören att öppna på annan enhet) -->
             <div id="modalOrganizerAccessBox" style="margin-top: 18px; padding: 14px; background: rgba(0, 230, 118, 0.08); border: 1px dashed rgba(0, 230, 118, 0.35); border-radius: var(--radius-md);">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 8px;">
                     <div style="font-weight: 800; font-size: 13px; color: var(--primary);">
                         👑 Din Arrangörsåtkomst (För styrning från iPad/dator)
                     </div>
@@ -584,7 +584,7 @@
                     </span>
                 </div>
                 <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
-                    Skicka inte denna till deltagarna. Använd denna länk om du vill ha full arrangörsbehörighet på en annan telefon eller skärm.
+                    Skicka inte denna till deltagarna. Masterkoden <strong>ulrik</strong> fungerar alltid för dig som arrangör om du glömmer koden ovan!
                 </p>
                 <button type="button" class="btn btn-secondary btn-sm" id="btnCopyAdminUrl" style="width: 100%;">
                     <span>🔗</span> Kopiera din arrangörslänk
@@ -753,15 +753,15 @@
                     <label class="form-label" for="authPlayerPin">Din 4-siffriga inloggningskod</label>
                     <input type="text" id="authPlayerPin" class="form-control" placeholder="T.ex. 4218" maxlength="6" inputmode="numeric">
                     <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 4px;">
-                        Koden du fick när du tog en plats (visas även bredvid ditt namn i väntrummet).
+                        Koden du fick på skärmen när du tog en plats (sparas automatiskt i din telefon).
                     </span>
                 </div>
 
                 <div class="form-group" id="authPinGroup">
                     <label class="form-label" for="authAdminPin">Arrangörskod</label>
-                    <input type="text" id="authAdminPin" class="form-control" placeholder="T.ex. PT-84">
+                    <input type="text" id="authAdminPin" class="form-control" placeholder="T.ex. PT-84 eller masterkod 'ulrik'">
                     <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 4px;">
-                        👑 Skaparen av turneringen är alltid automatiskt arrangör på sin egen enhet. För att styra från en ny enhet, ange arrangörskoden (t.ex. PT-84) eller öppna din personliga arrangörslänk.
+                        👑 Ange turneringens arrangörskod eller din masterkod <strong>ulrik</strong> som alltid ger full behörighet.
                     </span>
                 </div>
 
