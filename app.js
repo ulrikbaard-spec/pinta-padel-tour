@@ -2114,6 +2114,9 @@
 
         if (targetBtn) targetBtn.classList.add('active');
         if (targetSec) targetSec.classList.add('active');
+
+        // Scrolla mjukt upp på mobil så man inte hamnar mitt i en lång tabell eller spelschema
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function escapeHtml(string) {

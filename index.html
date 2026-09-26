@@ -2,7 +2,10 @@
 <html lang="sv">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0c1412">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title id="pageTitle">Pinta Padel Tour – Turneringsmotor & Lottning</title>
     <meta name="description" id="metaDescription" content="Officiell turneringsapp för Pinta Padel Tour. Inbjudningslänkar, inloggning för arrangör och spelare, radering och återställning av turneringar, manuell lottning och liveresultat för 8 spelare.">
     
@@ -108,19 +111,37 @@
             <button class="btn btn-primary btn-sm" id="btnGoToMatchesFromBanner">Visa spelschema 🎾</button>
         </div>
 
-        <!-- Fliknavigering -->
-        <nav class="nav-tabs" aria-label="Huvudflikar">
+        <!-- Fliknavigering (Mobil- & desktopanpassad) -->
+        <nav class="nav-tabs" aria-label="Huvudflikar" id="mainNavTabs">
             <button class="tab-btn active" data-tab="tabLobby" id="tabBtnLobby">
-                <span>📋</span> Väntrum &amp; Anmälan (<span id="tabLobbyPlayerCount">0</span>/8)
+                <span class="tab-icon">📋</span>
+                <span class="tab-label">
+                    <span class="tab-label-desktop">Väntrum &amp; Anmälan</span>
+                    <span class="tab-label-mobile">Väntrum</span>
+                </span>
+                <span class="tab-counter">(<span id="tabLobbyPlayerCount">0</span>/8)</span>
             </button>
             <button class="tab-btn" data-tab="tabLeaderboard" id="tabBtnLeaderboard">
-                <span>🏆</span> Tabell &amp; Liveresultat
+                <span class="tab-icon">🏆</span>
+                <span class="tab-label">
+                    <span class="tab-label-desktop">Tabell &amp; Liveresultat</span>
+                    <span class="tab-label-mobile">Tabell</span>
+                </span>
             </button>
             <button class="tab-btn" data-tab="tabMatches" id="tabBtnMatches">
-                <span>🎾</span> Spelschema
+                <span class="tab-icon">🎾</span>
+                <span class="tab-label">
+                    <span class="tab-label-desktop">Spelschema</span>
+                    <span class="tab-label-mobile">Schema</span>
+                </span>
             </button>
             <button class="tab-btn" data-tab="tabHistory" id="tabBtnHistory">
-                <span>📁</span> Turneringsarkiv (<span id="tabHistoryCount">0</span>)
+                <span class="tab-icon">📁</span>
+                <span class="tab-label">
+                    <span class="tab-label-desktop">Turneringsarkiv</span>
+                    <span class="tab-label-mobile">Arkiv</span>
+                </span>
+                <span class="tab-counter">(<span id="tabHistoryCount">0</span>)</span>
             </button>
         </nav>
 

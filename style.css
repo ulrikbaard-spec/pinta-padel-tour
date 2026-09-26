@@ -354,6 +354,43 @@ body {
     justify-content: center;
     gap: 8px;
     white-space: nowrap;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.tab-btn * {
+    pointer-events: none;
+}
+
+.tab-icon {
+    font-size: 16px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.tab-label {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.tab-label-desktop {
+    display: inline;
+}
+
+.tab-label-mobile {
+    display: none;
+}
+
+.tab-counter {
+    display: inline;
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    opacity: 0.9;
 }
 
 .tab-btn:hover {
@@ -1603,43 +1640,543 @@ body {
 }
 
 /* ==========================================================================
-   RESPONSIVE DESIGN
+   RESPONSIVE DESIGN (MOBIL- & TABLETANPASSNING)
    ========================================================================== */
 
+/* Tablet & mellanliggande skärmar (<= 768px) */
 @media (max-width: 768px) {
-    .app-header {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 12px;
-    }
-    
-    .brand {
-        justify-content: space-between;
-    }
-    
-    .header-actions {
-        justify-content: space-between;
-    }
-    
-    .tournament-banner {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    
-    .banner-buttons {
-        flex-direction: column;
-    }
-    
-    .banner-buttons .btn {
-        width: 100%;
-    }
-    
-    .nav-tabs {
-        border-radius: var(--radius-md);
-    }
-    
     .courts-container {
         grid-template-columns: 1fr;
+        gap: 14px;
+    }
+}
+
+/* Smartphone & mobilvy (<= 680px) */
+@media (max-width: 680px) {
+    /* Bas & Layout */
+    .app-wrapper {
+        padding: 10px 12px calc(60px + env(safe-area-inset-bottom));
+    }
+
+    /* Header: Kompakt, 1 rad på mobil */
+    .app-header {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 14px;
+        margin-bottom: 12px;
+        border-radius: var(--radius-md);
+    }
+
+    .brand {
+        gap: 10px;
+    }
+
+    .brand-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+        border-radius: 10px;
+    }
+
+    .brand-text h1 {
+        font-size: 16px;
+        line-height: 1.1;
+    }
+
+    .brand-text span {
+        display: none;
+    }
+
+    .cloud-status {
+        display: none;
+    }
+
+    .btn-auth {
+        padding: 6px 12px;
+        font-size: 12px;
+        gap: 6px;
+    }
+
+    .user-avatar {
+        width: 22px;
+        height: 22px;
+        font-size: 10.5px;
+    }
+
+    /* Banner för aktiv turnering */
+    .tournament-banner {
+        padding: 14px;
+        margin-bottom: 14px;
+        border-radius: var(--radius-md);
+        gap: 12px;
+    }
+
+    .active-tournament-info h2 {
+        font-size: 18px;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .tournament-badge {
+        font-size: 11px;
+        padding: 3px 8px;
+    }
+
+    .active-tournament-info p {
+        font-size: 12px;
+        line-height: 1.4;
+    }
+
+    /* Knappar i bannern: 2-kolumns rutnät */
+    .banner-buttons {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .banner-buttons #btnBannerDraw,
+    .banner-buttons #btnShareTournament {
+        grid-column: 1 / -1;
+        width: 100%;
+        padding: 12px 14px;
+        font-size: 13.5px;
+        justify-content: center;
+    }
+
+    .banner-buttons #btnNewTournament,
+    .banner-buttons #btnDeleteCurrentTourney {
+        width: 100%;
+        padding: 8px 10px;
+        font-size: 12px;
+        justify-content: center;
+    }
+
+    /* Fliknavigering: Sticky 4-kolumners app-navigering utan textbrytning */
+    .nav-tabs {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 4px;
+        padding: 5px;
+        border-radius: 14px;
+        position: sticky;
+        top: 8px;
+        z-index: 95;
+        background: rgba(19, 32, 28, 0.95);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+        margin-bottom: 16px;
+        overflow-x: visible;
+    }
+
+    .tab-btn {
+        flex: none;
+        min-width: 0;
+        width: 100%;
+        padding: 7px 2px;
+        flex-direction: column;
+        gap: 2px;
+        border-radius: 10px;
+        font-size: 11px;
+    }
+
+    .tab-icon {
+        font-size: 19px;
+        margin-bottom: 1px;
+    }
+
+    .tab-label {
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.1;
+    }
+
+    .tab-label-desktop {
+        display: none;
+    }
+
+    .tab-label-mobile {
+        display: inline;
+    }
+
+    .tab-counter {
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 1;
+        color: var(--primary);
+    }
+
+    .tab-btn.active {
+        background: rgba(0, 230, 118, 0.14);
+        border: 1px solid rgba(0, 230, 118, 0.4);
+        box-shadow: 0 2px 10px rgba(0, 230, 118, 0.2);
+    }
+
+    /* Väntrum & Anmälan */
+    .lobby-progress-card {
+        padding: 16px 14px;
+        border-radius: var(--radius-md);
+    }
+
+    .lobby-progress-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .lobby-count-badge {
+        font-size: 11.5px;
+        padding: 3px 8px;
+    }
+
+    .progress-subtext {
+        font-size: 12px;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    /* 8 Platser: Enkelkolumn full-bredd på mobil så inget klipps */
+    .slots-grid {
+        grid-template-columns: 1fr;
+        gap: 8px;
+        margin-top: 14px;
+    }
+
+    .slot-card {
+        padding: 10px 12px;
+        min-height: 52px;
+        border-radius: 12px;
+    }
+
+    .slot-player-text {
+        max-width: 165px;
+        font-size: 14px;
+    }
+
+    .slot-vacant-text {
+        font-size: 13.5px;
+    }
+
+    .slot-meta {
+        font-size: 11px;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .pin-badge {
+        font-size: 11px;
+        padding: 2px 6px;
+    }
+
+    /* Lottnings-aktionsruta */
+    .draw-action-box {
+        padding: 16px 14px;
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+        gap: 14px;
+        border-radius: var(--radius-md);
+        margin-top: 16px;
+    }
+
+    .draw-action-text {
+        flex-direction: column;
+        text-align: center;
+        min-width: 0;
+        gap: 6px;
+    }
+
+    .draw-action-box .btn-lg {
+        width: 100%;
+        justify-content: center;
+        padding: 14px 16px;
+        font-size: 15px;
+    }
+
+    /* Anmälningsformulär */
+    .quick-register-input-wrap {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .quick-register-input-wrap .form-control {
+        min-height: 48px;
+        font-size: 16px; /* Förhindrar automatisk zoom på iOS */
+    }
+
+    .quick-register-input-wrap .btn {
+        width: 100%;
+        padding: 13px 18px;
+        font-size: 15px;
+    }
+
+    .quick-register-hint {
+        font-size: 12px;
+        margin-top: 10px;
+    }
+
+    /* Inbjudningskanaler: 2x2 rutnät */
+    .channels-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .channels-row .btn {
+        width: 100%;
+        padding: 10px 6px;
+        font-size: 12px;
+        white-space: nowrap;
+        justify-content: center;
+    }
+
+    /* Tabell & Statistik */
+    .card {
+        padding: 14px 12px;
+        border-radius: var(--radius-md);
+    }
+
+    .card-header {
+        margin-bottom: 12px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .card-title {
+        font-size: 16px;
+    }
+
+    .table th, .table td {
+        padding: 9px 5px;
+        font-size: 12.5px;
+    }
+
+    .table th {
+        font-size: 10px;
+        letter-spacing: 0.02em;
+        padding: 8px 4px;
+    }
+
+    .rank-cell {
+        width: 28px;
+        font-size: 13px;
+        padding-left: 2px;
+    }
+
+    .rank-badge {
+        width: 24px;
+        height: 24px;
+        font-size: 11.5px;
+    }
+
+    .player-name-cell {
+        font-size: 13px;
+        max-width: 105px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .table-responsive {
+        margin: 0 -4px;
+        border-radius: 8px;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Spelschema & Omgångar */
+    .round-selector-wrapper {
+        gap: 6px;
+        margin-bottom: 12px;
+        padding-bottom: 4px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .round-selector-wrapper::-webkit-scrollbar {
+        display: none;
+    }
+
+    .round-pill {
+        padding: 8px 14px;
+        font-size: 12.5px;
+    }
+
+    .courts-container {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .court-header {
+        padding: 10px 14px;
+    }
+
+    .court-title {
+        font-size: 14px;
+    }
+
+    .match-list {
+        padding: 12px 10px;
+        gap: 10px;
+    }
+
+    .match-item {
+        padding: 12px 10px;
+        border-radius: 12px;
+    }
+
+    .match-item-header {
+        margin-bottom: 8px;
+        font-size: 11px;
+    }
+
+    .match-teams-grid {
+        gap: 8px;
+    }
+
+    .team-players {
+        font-size: 13px;
+    }
+
+    .score-display {
+        font-size: 18px;
+    }
+
+    .score-pending {
+        font-size: 10.5px;
+        padding: 5px 8px;
+        white-space: nowrap;
+    }
+
+    /* Modaler: Bottenblad (Bottom-sheet) för smidig enhandshantering på planen */
+    .modal-backdrop {
+        align-items: flex-end;
+        padding: 0;
+    }
+
+    .modal-box {
+        width: 100%;
+        max-width: 100%;
+        border-radius: 20px 20px 0 0;
+        padding: 20px 16px calc(24px + env(safe-area-inset-bottom));
+        max-height: 92vh;
+        box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.6);
+        border-bottom: none;
+        animation: slideUpModal 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes slideUpModal {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+    }
+
+    .modal-header {
+        margin-bottom: 14px;
+    }
+
+    .modal-title {
+        font-size: 17.5px;
+    }
+
+    .form-control {
+        font-size: 16px; /* Förhindrar automatisk zoom på iOS */
+        padding: 12px 14px;
+    }
+
+    /* Resultaträknare i modal med stora pekknappar */
+    .score-entry-container {
+        gap: 8px;
+        margin: 16px 0;
+    }
+
+    .score-input-large {
+        width: 70px;
+        height: 56px;
+        font-size: 26px;
+    }
+
+    .btn-step {
+        width: 46px;
+        height: 46px;
+        font-size: 22px;
+    }
+
+    .quick-scores {
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 14px;
+    }
+
+    .btn-quick-score {
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+
+    .auth-mode-selector {
+        grid-template-columns: 1fr;
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+
+    .auth-role-card {
+        padding: 12px 14px;
+        display: flex;
+        align-items: center;
+        text-align: left;
+        gap: 12px;
+    }
+
+    .auth-role-icon {
+        font-size: 24px;
+        margin-bottom: 0;
+        flex-shrink: 0;
+    }
+
+    .auth-role-title {
+        font-size: 14px;
+        margin-bottom: 2px;
+    }
+
+    .auth-role-desc {
+        font-size: 11px;
+    }
+
+    .pin-code-digits {
+        font-size: 38px;
+    }
+
+    /* Turneringsarkiv */
+    .history-card, .trash-card {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding: 14px 12px;
+    }
+
+    .history-meta {
+        flex-wrap: wrap;
+        gap: 6px 10px;
+        font-size: 11.5px;
+    }
+
+    .history-card > div:last-child,
+    .trash-card > div:last-child {
+        display: flex;
+        justify-content: flex-end;
+        width: 100%;
+        gap: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        padding-top: 8px;
+    }
+
+    .history-card .btn,
+    .trash-card .btn {
+        flex: 1;
+        justify-content: center;
     }
 }
 
