@@ -1384,6 +1384,13 @@
             }
 
             const isDrawn = tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0);
+            const isFullOrDrawn = playerCount >= 8 || isDrawn;
+
+            // Dölj inbjudningsknappen i bannern när turneringen är full (8 spelare) eller lottad
+            const btnShareTourney = document.getElementById('btnShareTournament');
+            if (btnShareTourney) {
+                btnShareTourney.style.display = isFullOrDrawn ? 'none' : 'inline-flex';
+            }
 
             if (tourney.status === 'lobby' && !isDrawn && playerCount < 8) {
                 if (btnBannerDraw) btnBannerDraw.style.display = 'none';
@@ -1430,6 +1437,8 @@
             if (elBannerOrg) elBannerOrg.style.display = 'none';
             if (elLobbyBar) elLobbyBar.style.display = 'none';
             if (btnBannerDraw) btnBannerDraw.style.display = 'none';
+            const btnShareTourney = document.getElementById('btnShareTournament');
+            if (btnShareTourney) btnShareTourney.style.display = 'none';
             const tabCount = document.getElementById('tabLobbyPlayerCount');
             if (tabCount) tabCount.textContent = '0';
         }
@@ -1647,6 +1656,12 @@
         } else {
             if (alreadyNotice) alreadyNotice.style.display = 'none';
             if (formQuickReg) formQuickReg.style.display = 'block';
+        }
+
+        // Dölj "Bjud in spelare till turneringen" när turneringen är full med 8 spelare eller lottad
+        const inviteCard = document.getElementById('invitePlayersCard');
+        if (inviteCard) {
+            inviteCard.style.display = (playerCount >= 8 || isDrawn) ? 'none' : 'block';
         }
     }
 
