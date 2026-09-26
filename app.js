@@ -52,8 +52,14 @@
     function isUserOrganizerOf(tourney) {
         if (!tourney) return false;
 
-        // 0. Master Admin: koden "ulrik" eller arrangörsnamnet "Ulrik" ger ALLTID full behörighet!
+        // Om användaren aktivt har valt rollen 'player', agerar de som spelare (ej arrangör)!
+        if (appState.currentUser && appState.currentUser.role === 'player') {
+            return false;
+        }
+
+        // 1. Om inloggad som admin:
         if (appState.currentUser && appState.currentUser.role === 'admin') {
+            // Master Admin eller inloggad med namnet "Ulrik" som admin
             if (appState.currentUser.isMasterAdmin || 
                 (appState.currentUser.name && appState.currentUser.name.toLowerCase() === 'ulrik')) {
                 return true;
@@ -66,12 +72,18 @@
             if (tourney.adminKey && appState.currentUser.tourneyKey === tourney.adminKey) {
                 return true;
             }
+            const keys = getAdminKeys();
+            if (tourney.adminKey && keys[tourney.id] === tourney.adminKey) {
+                return true;
+            }
         }
 
-        // 1. Har denna webbläsare sparad adminnyckel för turneringen?
-        const keys = getAdminKeys();
-        if (tourney.adminKey && keys[tourney.id] === tourney.adminKey) {
-            return true;
+        // 2. Om inte inloggad alls (gäst) men webbläsaren har sparad adminnyckel:
+        if (!appState.currentUser) {
+            const keys = getAdminKeys();
+            if (tourney.adminKey && keys[tourney.id] === tourney.adminKey) {
+                return true;
+            }
         }
 
         return false;
@@ -443,19 +455,17 @@
             appState.currentUser = null;
         }
 
-        // Om skaparen besöker sin egen turnering på denna enhet: känn igen som arrangör automatiskt!
+        // Om skaparen besöker sin egen turnering på denna enhet och ingen användare är inloggad:
         const activeT = appState.tournaments.find(t => t.id === appState.activeTournamentId) || (appState.tournaments[0] || null);
-        if (activeT && isUserOrganizerOf(activeT)) {
-            if (!appState.currentUser) {
+        if (activeT && !appState.currentUser) {
+            const keys = getAdminKeys();
+            if (activeT.adminKey && keys[activeT.id] === activeT.adminKey) {
                 appState.currentUser = {
                     id: (activeT.organizer && activeT.organizer.id) ? activeT.organizer.id : 'org_creator',
                     name: (activeT.organizer && activeT.organizer.name) ? activeT.organizer.name : 'Arrangör',
                     role: 'admin',
                     tourneyKey: activeT.adminKey
                 };
-                saveUser();
-            } else if (appState.currentUser.role !== 'admin' && activeT.organizer && activeT.organizer.name && appState.currentUser.name.toLowerCase() === activeT.organizer.name.toLowerCase()) {
-                appState.currentUser.role = 'admin';
                 saveUser();
             }
         }
@@ -976,24 +986,46 @@
 
         tourney.players.push(newPlayer);
 
-        // Spara automatiskt i spelarens telefon och logga in direkt!
-        appState.currentUser = {
-            id: newPlayer.id,
-            name: newPlayer.name,
-            pin: newPlayer.pin,
-            role: 'player'
-        };
-        saveUser();
-        renderUserStatus();
+        // Bestäm om vi ska logga in som den nya spelaren på denna enhet:
+        // Om arrangören är inloggad och lägger till en spelare -> ändra INTE arrangörens inloggning!
+        const isOrganizerLoggedIn = appState.currentUser && appState.currentUser.role === 'admin';
+
+        if (!isOrganizerLoggedIn) {
+            // Det är en deltagare som registrerar sig själv på sin egen enhet -> logga in direkt!
+            appState.currentUser = {
+                id: newPlayer.id,
+                name: newPlayer.name,
+                pin: newPlayer.pin,
+                role: 'player'
+            };
+            saveUser();
+            renderUserStatus();
+        }
 
         // Visa koden direkt på skärmen i bekräftelsemodalen
         if (showConfirmationModal) {
+            const titleEl = document.getElementById('pinModalTitle');
+            const subtitleEl = document.getElementById('pinModalSubtitle');
             const nameEl = document.getElementById('pinConfirmPlayerName');
             const badgeEl = document.getElementById('pinConfirmSlotBadge');
             const codeEl = document.getElementById('pinConfirmCodeDisplay');
 
+            const slotNumber = tourney.players.length;
+
+            if (isOrganizerLoggedIn) {
+                if (titleEl) titleEl.textContent = 'Spelare tillagd!';
+                if (subtitleEl) {
+                    subtitleEl.innerHTML = `<strong>${escapeHtml(newPlayer.name)}</strong> har tilldelats <span style="color: var(--primary); font-weight: 800;">Plats ${slotNumber} av 8</span>.<br><span style="font-size:13px; color:var(--text-muted); margin-top:6px; display:inline-block;">Ge den 4-siffriga koden nedan till spelaren så att de kan logga in på sin egen mobil:</span>`;
+                }
+            } else {
+                if (titleEl) titleEl.textContent = 'Du har tagit en plats!';
+                if (subtitleEl) {
+                    subtitleEl.innerHTML = `Välkommen till turneringen, <strong id="pinConfirmPlayerName" style="color: #fff;">${escapeHtml(newPlayer.name)}</strong>! Du har <span id="pinConfirmSlotBadge" style="color: var(--primary); font-weight: 800;">Plats ${slotNumber} av 8</span>.`;
+                }
+            }
+
             if (nameEl) nameEl.textContent = newPlayer.name;
-            if (badgeEl) badgeEl.textContent = `Plats ${tourney.players.length} av 8`;
+            if (badgeEl) badgeEl.textContent = `Plats ${slotNumber} av 8`;
             if (codeEl) codeEl.textContent = newPlayer.pin;
 
             openModal('modalPinConfirmation');
@@ -1455,6 +1487,7 @@
                 }
 
             } else {
+                const isOrganizer = isUserOrganizerOf(tourney);
                 card.className = 'slot-card vacant';
                 card.innerHTML = `
                     <div class="slot-left">
@@ -1464,39 +1497,45 @@
                             <div class="slot-meta">Väntar på anmälan...</div>
                         </div>
                     </div>
+                    ${isOrganizer ? `
                     <button type="button" class="btn btn-secondary btn-sm btn-manual-add" data-index="${i}">
                         ➕ Lägg till
-                    </button>
+                    </button>` : ''}
                 `;
 
-                card.querySelector('.btn-manual-add').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    document.getElementById('manualSlotIndex').value = i;
-                    document.getElementById('manualPlayerName').value = '';
+                if (isOrganizer) {
+                    const addBtn = card.querySelector('.btn-manual-add');
+                    if (addBtn) {
+                        addBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            document.getElementById('manualSlotIndex').value = i;
+                            document.getElementById('manualPlayerName').value = '';
 
-                    // Hämta registrerade spelare som INTE redan är med i denna turnering
-                    const currentNames = (tourney.players || []).map(p => (typeof p === 'string' ? p : p.name).toLowerCase());
-                    const availableReg = (appState.registeredPlayers || []).filter(rp => {
-                        const rName = (rp.name || '').toLowerCase();
-                        return !currentNames.includes(rName);
-                    });
+                            // Hämta registrerade spelare som INTE redan är med i denna turnering
+                            const currentNames = (tourney.players || []).map(p => (typeof p === 'string' ? p : p.name).toLowerCase());
+                            const availableReg = (appState.registeredPlayers || []).filter(rp => {
+                                const rName = (rp.name || '').toLowerCase();
+                                return !currentNames.includes(rName);
+                            });
 
-                    const boxExisting = document.getElementById('boxExistingRegisteredPlayers');
-                    const selectExisting = document.getElementById('selectExistingPlayer');
+                            const boxExisting = document.getElementById('boxExistingRegisteredPlayers');
+                            const selectExisting = document.getElementById('selectExistingPlayer');
 
-                    if (boxExisting && selectExisting) {
-                        if (availableReg.length > 0) {
-                            boxExisting.style.display = 'block';
-                            selectExisting.innerHTML = availableReg.map(p => 
-                                `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`
-                            ).join('');
-                        } else {
-                            boxExisting.style.display = 'none';
-                        }
+                            if (boxExisting && selectExisting) {
+                                if (availableReg.length > 0) {
+                                    boxExisting.style.display = 'block';
+                                    selectExisting.innerHTML = availableReg.map(p => 
+                                        `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`
+                                    ).join('');
+                                } else {
+                                    boxExisting.style.display = 'none';
+                                }
+                            }
+
+                            openModal('modalManualPlayer');
+                        });
                     }
-
-                    openModal('modalManualPlayer');
-                });
+                }
             }
 
             grid.appendChild(card);
@@ -1825,7 +1864,7 @@
         const isOrg = activeTourney && isUserOrganizerOf(activeTourney);
 
         if (appState.currentUser) {
-            const role = isOrg ? 'admin' : (appState.currentUser.role || 'player');
+            const role = appState.currentUser.role || 'player';
             if (avatar) avatar.textContent = role === 'admin' ? '👑' : '🎾';
             if (nameEl) {
                 if (role === 'admin') {
@@ -1857,7 +1896,7 @@
         if (loggedInBox) {
             if (appState.currentUser) {
                 loggedInBox.style.display = 'block';
-                const roleLabel = (isOrg || appState.currentUser.role === 'admin') ? '👑 Arrangör (Admin)' : '🎾 Spelare';
+                const roleLabel = (appState.currentUser.role === 'admin') ? '👑 Arrangör (Admin)' : '🎾 Spelare';
                 if (loggedInText) loggedInText.textContent = `Inloggad som: ${appState.currentUser.name}`;
                 if (loggedInSub) {
                     if (appState.currentUser.role === 'admin') {
@@ -2337,6 +2376,8 @@
 
         function setAuthRole(role) {
             authRoleSelected.value = role;
+            const tourney = getActiveTournament();
+
             if (role === 'admin') {
                 cardRoleAdmin.classList.add('selected');
                 cardRolePlayer.classList.remove('selected');
@@ -2344,6 +2385,12 @@
                 authPinGroup.style.display = 'block';
                 if (authPlayerQuickSelectGroup) authPlayerQuickSelectGroup.style.display = 'none';
                 btnSubmitAuth.textContent = 'Logga in som Arrangör 👔';
+
+                const orgName = (tourney && tourney.organizer && tourney.organizer.name) 
+                    ? tourney.organizer.name 
+                    : (appState.currentUser && appState.currentUser.name ? appState.currentUser.name : 'Ulrik');
+                const nameInput = document.getElementById('authUserName');
+                if (nameInput) nameInput.value = orgName;
             } else {
                 cardRolePlayer.classList.add('selected');
                 cardRoleAdmin.classList.remove('selected');
@@ -2351,6 +2398,21 @@
                 authPinGroup.style.display = 'none';
                 if (authPlayerQuickSelectGroup) authPlayerQuickSelectGroup.style.display = 'block';
                 btnSubmitAuth.textContent = 'Logga in som Spelare 🎾';
+
+                // Om användaren vill byta till spelare:
+                const currentName = appState.currentUser ? appState.currentUser.name : '';
+                const nameInput = document.getElementById('authUserName');
+                const pinInput = document.getElementById('authPlayerPin');
+
+                if (tourney && tourney.players && currentName) {
+                    const selfPlayer = tourney.players.find(p => (typeof p === 'string' ? p : p.name).toLowerCase() === currentName.toLowerCase());
+                    if (selfPlayer) {
+                        if (nameInput) nameInput.value = typeof selfPlayer === 'string' ? selfPlayer : selfPlayer.name;
+                        if (pinInput && typeof selfPlayer === 'object' && selfPlayer.pin) {
+                            pinInput.value = selfPlayer.pin;
+                        }
+                    }
+                }
             }
         }
 
@@ -2440,13 +2502,9 @@
 
             const tourney = getActiveTournament();
 
-            // MASTER-KOD "ulrik": Ger ALLTID full arrangörsbehörighet!
-            const isMasterCode = (adminPin.toLowerCase() === 'ulrik' || 
-                                  playerPin.toLowerCase() === 'ulrik' || 
-                                  (name.toLowerCase() === 'ulrik' && (adminPin.toLowerCase() === 'ulrik' || playerPin.toLowerCase() === 'ulrik')));
-
-            if (role === 'admin' || isMasterCode) {
+            if (role === 'admin') {
                 let isAuthorized = false;
+                const isMasterCode = (adminPin.toLowerCase() === 'ulrik' || (name.toLowerCase() === 'ulrik' && adminPin.toLowerCase() === 'ulrik'));
 
                 if (isMasterCode) {
                     isAuthorized = true;
@@ -2458,8 +2516,11 @@
                         isAuthorized = true;
                     } else if (cleanPin && tourney.adminKey && cleanPin === tourney.adminKey.toUpperCase()) {
                         isAuthorized = true;
-                    } else if (isUserOrganizerOf(tourney)) {
-                        isAuthorized = true;
+                    } else {
+                        const keys = getAdminKeys();
+                        if (tourney.adminKey && keys[tourney.id] === tourney.adminKey) {
+                            isAuthorized = true;
+                        }
                     }
                 } else {
                     isAuthorized = true;
@@ -2483,12 +2544,11 @@
                     id: isMasterCode ? 'admin_ulrik' : ((tourney && tourney.organizer && tourney.organizer.id) ? tourney.organizer.id : ('admin_' + Date.now())),
                     name: adminDisplayName,
                     role: 'admin',
-                    isMasterAdmin: true,
+                    isMasterAdmin: (isMasterCode || adminDisplayName.toLowerCase() === 'ulrik'),
                     tourneyKey: tourney ? tourney.adminKey : null
                 };
             } else {
                 // Spelarinloggning: Verifiera med spelarens personliga 4-siffriga PIN-kod
-                // Hitta spelaren i aktiva turneringen eller i spelarregistret
                 let foundPlayer = null;
                 if (tourney && tourney.players) {
                     foundPlayer = tourney.players.find(p => {
@@ -2506,8 +2566,12 @@
                 }
 
                 const expectedPin = (typeof foundPlayer === 'object' && foundPlayer.pin) ? String(foundPlayer.pin).trim() : '';
+                const isUlrikPlayer = (name.toLowerCase() === 'ulrik' || (foundPlayer && typeof foundPlayer === 'object' && foundPlayer.name && foundPlayer.name.toLowerCase() === 'ulrik'));
 
-                if (expectedPin && playerPin !== expectedPin) {
+                // Tillåt inloggning om koden matchar spelarens PIN eller om det är Ulrik och han angav masterkoden 'ulrik'
+                const pinMatches = (expectedPin && playerPin === expectedPin) || (isUlrikPlayer && playerPin.toLowerCase() === 'ulrik') || (!expectedPin);
+
+                if (!pinMatches) {
                     alert(`Felaktig inloggningskod för "${name}". Ange din personliga 4-siffriga kod.`);
                     return;
                 }
