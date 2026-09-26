@@ -859,7 +859,9 @@
         const adminKey = 'adm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
         const adminCode = 'PT-' + Math.floor(10 + Math.random() * 90);
 
-        const orgName = (organizerData && organizerData.name) ? organizerData.name.trim() : 'Ulrik';
+        const orgName = (organizerData && organizerData.name && organizerData.name.trim()) 
+            ? organizerData.name.trim() 
+            : (appState.currentUser && appState.currentUser.name ? appState.currentUser.name : 'Arrangör');
 
         // Spara senaste arrangörsuppgifter i localStorage för bekvämlighet
         try {
@@ -1320,30 +1322,42 @@
     function renderApp() {
         const tourney = getActiveTournament();
 
+        const elBannerOrg = document.getElementById('bannerOrganizerBadge');
+        const elBannerName = document.getElementById('bannerOrganizerName');
+        const elLobbyBar = document.getElementById('lobbyOrganizerBar');
+        const elLobbyName = document.getElementById('lobbyOrganizerNameText');
+        const btnBannerDraw = document.getElementById('btnBannerDraw');
+
         if (tourney) {
             document.getElementById('contentContainer').style.display = 'block';
             document.getElementById('emptyStateContainer').style.display = 'none';
 
             document.getElementById('activeTournamentTitle').textContent = tourney.name;
             const badge = document.getElementById('activeTournamentBadge');
-            const btnBannerDraw = document.getElementById('btnBannerDraw');
 
             const playerCount = tourney.players ? tourney.players.length : 0;
-            document.getElementById('tabLobbyPlayerCount').textContent = playerCount;
+            const tabCount = document.getElementById('tabLobbyPlayerCount');
+            if (tabCount) tabCount.textContent = playerCount;
 
             const isOrg = isUserOrganizerOf(tourney);
-            const orgName = (tourney.organizer && tourney.organizer.name) ? tourney.organizer.name : 'Ulrik';
+            const orgName = (tourney.organizer && tourney.organizer.name && tourney.organizer.name.trim()) 
+                ? tourney.organizer.name.trim() 
+                : '';
 
-            const elBannerOrg = document.getElementById('bannerOrganizerName');
-            if (elBannerOrg) elBannerOrg.textContent = orgName;
-
-            const elLobbyOrg = document.getElementById('lobbyOrganizerNameText');
-            if (elLobbyOrg) elLobbyOrg.textContent = orgName;
+            if (orgName) {
+                if (elBannerOrg) elBannerOrg.style.display = 'inline-flex';
+                if (elBannerName) elBannerName.textContent = orgName;
+                if (elLobbyBar) elLobbyBar.style.display = 'flex';
+                if (elLobbyName) elLobbyName.textContent = orgName;
+            } else {
+                if (elBannerOrg) elBannerOrg.style.display = 'none';
+                if (elLobbyBar) elLobbyBar.style.display = 'none';
+            }
 
             const isDrawn = tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0);
 
             if (tourney.status === 'lobby' && !isDrawn && playerCount < 8) {
-                btnBannerDraw.style.display = 'none';
+                if (btnBannerDraw) btnBannerDraw.style.display = 'none';
                 badge.textContent = `🟡 Väntrum (${playerCount}/8 spelare)`;
                 badge.style.color = 'var(--warning)';
                 badge.style.borderColor = 'rgba(255, 183, 3, 0.4)';
@@ -1351,15 +1365,15 @@
                 document.getElementById('activeTournamentMeta').textContent = 
                     `${8 - playerCount} platser kvar · Bjud in spelare via Messenger, WhatsApp eller länk`;
             } else if (playerCount === 8 && !isDrawn) {
-                btnBannerDraw.style.display = 'inline-flex';
+                if (btnBannerDraw) btnBannerDraw.style.display = 'inline-flex';
                 badge.textContent = `🟡 8/8 anmälda · Redo för lottning`;
                 badge.style.color = 'var(--warning)';
                 badge.style.borderColor = 'rgba(255, 183, 3, 0.4)';
                 badge.style.background = 'rgba(255, 183, 3, 0.12)';
                 document.getElementById('activeTournamentMeta').textContent = 
-                    `${orgPrefix} · Alla 8 spelare är anmälda! ${isOrg ? 'Klicka på "Lotta spelordning" för att starta.' : 'Väntar på att arrangören ska lotta.'}`;
+                    `Alla 8 spelare är anmälda! ${isOrg ? 'Klicka på "Lotta spelordning" för att starta.' : 'Väntar på att arrangören ska lotta.'}`;
             } else {
-                btnBannerDraw.style.display = 'none';
+                if (btnBannerDraw) btnBannerDraw.style.display = 'none';
                 badge.textContent = tourney.format === 'option1' 
                     ? 'Lag-serie (7 omgångar × 3 matcher)' 
                     : 'Bana-rotation (4 på samma bana)';
@@ -1370,7 +1384,7 @@
                 const totalMatches = (tourney.rounds || []).flatMap(r => r.matches || []).length;
                 const doneMatches = (tourney.rounds || []).flatMap(r => r.matches || []).filter(m => m.completed).length;
                 document.getElementById('activeTournamentMeta').textContent = 
-                    `${orgPrefix} · Lottningen är gjord · ${doneMatches} av ${totalMatches} matcher spelade · Status: ${tourney.status === 'completed' ? '🏆 Avslutad' : '🟢 Pågår'}`;
+                    `Lottningen är gjord · ${doneMatches} av ${totalMatches} matcher spelade · Status: ${tourney.status === 'completed' ? '🏆 Avslutad' : '🟢 Pågår'}`;
             }
 
             renderLobbyView(tourney);
@@ -1383,6 +1397,12 @@
             document.getElementById('activeTournamentMeta').textContent = 'Klicka nedan för att starta en turnering och bjuda in spelare';
             document.getElementById('contentContainer').style.display = 'none';
             document.getElementById('emptyStateContainer').style.display = 'block';
+
+            if (elBannerOrg) elBannerOrg.style.display = 'none';
+            if (elLobbyBar) elLobbyBar.style.display = 'none';
+            if (btnBannerDraw) btnBannerDraw.style.display = 'none';
+            const tabCount = document.getElementById('tabLobbyPlayerCount');
+            if (tabCount) tabCount.textContent = '0';
         }
 
         renderHistory();
