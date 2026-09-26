@@ -250,6 +250,12 @@
             return false;
         }
 
+        if (tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0)) {
+            alert('Lottningen är redan genomförd och låst för denna turnering. Den kan inte göras om.');
+            switchTab('tabMatches');
+            return false;
+        }
+
         // Slumpa spelarnas ordning (Fisher-Yates) så att lottningen blir helt rättvis och slumpmässig
         for (let i = tourney.players.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
@@ -265,6 +271,7 @@
         }
 
         tourney.status = 'active';
+        tourney.isDrawn = true;
         tourney.drawnAt = new Date().toISOString();
 
         playFanfare();
@@ -866,6 +873,7 @@
             pointSystem: pointSystem || 'games', // Standard: Game-räkning
             createdAt: new Date().toISOString(),
             status: 'lobby',
+            isDrawn: false,
             players: [],
             rounds: [],
             currentRoundIndex: 0,
@@ -1044,6 +1052,11 @@
 
     function removePlayer(tourney, playerIndex) {
         if (!tourney || playerIndex < 0 || playerIndex >= tourney.players.length) return;
+
+        if (tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0)) {
+            alert('Spelare kan inte tas bort efter att lottningen är genomförd.');
+            return;
+        }
 
         const targetPlayer = tourney.players[playerIndex];
         const pName = typeof targetPlayer === 'string' ? targetPlayer : targetPlayer.name;
@@ -1327,7 +1340,9 @@
             const elLobbyOrg = document.getElementById('lobbyOrganizerNameText');
             if (elLobbyOrg) elLobbyOrg.textContent = orgName;
 
-            if (tourney.status === 'lobby' || playerCount < 8) {
+            const isDrawn = tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0);
+
+            if (tourney.status === 'lobby' && !isDrawn && playerCount < 8) {
                 btnBannerDraw.style.display = 'none';
                 badge.textContent = `🟡 Väntrum (${playerCount}/8 spelare)`;
                 badge.style.color = 'var(--warning)';
@@ -1335,7 +1350,7 @@
                 badge.style.background = 'rgba(255, 183, 3, 0.12)';
                 document.getElementById('activeTournamentMeta').textContent = 
                     `${8 - playerCount} platser kvar · Bjud in spelare via Messenger, WhatsApp eller länk`;
-            } else if (playerCount === 8 && tourney.status !== 'active' && tourney.status !== 'completed') {
+            } else if (playerCount === 8 && !isDrawn) {
                 btnBannerDraw.style.display = 'inline-flex';
                 badge.textContent = `🟡 8/8 anmälda · Redo för lottning`;
                 badge.style.color = 'var(--warning)';
@@ -1355,7 +1370,7 @@
                 const totalMatches = (tourney.rounds || []).flatMap(r => r.matches || []).length;
                 const doneMatches = (tourney.rounds || []).flatMap(r => r.matches || []).filter(m => m.completed).length;
                 document.getElementById('activeTournamentMeta').textContent = 
-                    `${orgPrefix} · ${doneMatches} av ${totalMatches} matcher spelade · Status: ${tourney.status === 'completed' ? '🏆 Avslutad' : '🟢 Pågår'}`;
+                    `${orgPrefix} · Lottningen är gjord · ${doneMatches} av ${totalMatches} matcher spelade · Status: ${tourney.status === 'completed' ? '🏆 Avslutad' : '🟢 Pågår'}`;
             }
 
             renderLobbyView(tourney);
@@ -1387,9 +1402,11 @@
         const statusText = document.getElementById('lobbyProgressStatusText');
         const drawBox = document.getElementById('drawActionBox');
         const btnDraw = document.getElementById('btnDrawSchedule');
+        const btnGoMatches = document.getElementById('btnGoToMatchesFromLobby');
         const drawIcon = document.getElementById('drawActionIcon');
         const drawTitle = document.getElementById('drawActionTitle');
         const drawDesc = document.getElementById('drawActionDesc');
+        const isDrawn = tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0);
 
         if (playerCount < 8) {
             statusText.textContent = `${8 - playerCount} lediga platser. Bjud in vänner via Messenger, WhatsApp eller direktlänk.`;
@@ -1402,7 +1419,8 @@
             btnDraw.style.cursor = 'not-allowed';
             btnDraw.className = 'btn btn-secondary btn-lg';
             btnDraw.innerHTML = `<span>🎲</span> Lotta spelordning (${playerCount}/8)`;
-        } else if (tourney.status !== 'active' && tourney.status !== 'completed') {
+            if (btnGoMatches) btnGoMatches.style.display = 'none';
+        } else if (!isDrawn) {
             statusText.textContent = `Alla 8 platser är fyllda! Klicka på lottningsknappen för att genomföra lottningen.`;
             drawBox.classList.remove('disabled');
             drawIcon.textContent = '🎲';
@@ -1413,17 +1431,19 @@
             btnDraw.style.cursor = 'pointer';
             btnDraw.className = 'btn btn-primary btn-lg';
             btnDraw.innerHTML = `<span>🎲</span> Lotta spelordning nu! 🎾`;
+            if (btnGoMatches) btnGoMatches.style.display = 'none';
         } else {
             statusText.textContent = `Lottningen är genomförd och turneringen är aktiv!`;
             drawBox.classList.remove('disabled');
-            drawIcon.textContent = '✅';
-            drawTitle.textContent = 'Lottning genomförd';
-            drawDesc.textContent = 'Spelschemat och tabellen är igång. Klicka för att se matcherna på Bana 1 & 2.';
-            btnDraw.disabled = false;
-            btnDraw.style.opacity = '1';
-            btnDraw.style.cursor = 'pointer';
+            drawIcon.textContent = '🔒';
+            drawTitle.textContent = 'Lottningen är gjord';
+            drawDesc.textContent = 'Spelordningen har lottats och är låst för denna turnering. Klicka på "Visa spelschema" för att se matcherna på Bana 1 & 2.';
+            btnDraw.disabled = true;
+            btnDraw.style.opacity = '0.4';
+            btnDraw.style.cursor = 'not-allowed';
             btnDraw.className = 'btn btn-secondary btn-lg';
-            btnDraw.innerHTML = `<span>🎾</span> Visa spelschema`;
+            btnDraw.innerHTML = `<span>🔒</span> Lottning genomförd`;
+            if (btnGoMatches) btnGoMatches.style.display = 'inline-flex';
         }
 
         const grid = document.getElementById('lobbySlotsGrid');
@@ -1461,7 +1481,7 @@
                     pinBadgeHtml = `<span class="status-badge-ready">✓ Anmäld</span>`;
                 }
 
-                const canRemove = isOrganizer || isSelf;
+                const canRemove = !isDrawn && (isOrganizer || isSelf);
 
                 card.className = 'slot-card occupied' + (isSelf ? ' is-current-user' : '');
                 card.innerHTML = `
@@ -1671,9 +1691,8 @@
         activeContent.style.display = 'block';
 
         const btnReDraw = document.getElementById('btnReDrawSchedule');
-        const hasScores = (tourney.rounds || []).flatMap(r => r.matches || []).some(m => m.completed);
         if (btnReDraw) {
-            btnReDraw.style.display = hasScores ? 'none' : 'inline-flex';
+            btnReDraw.style.display = 'none';
         }
 
         const roundPillsContainer = document.getElementById('roundPillsContainer');
@@ -2144,13 +2163,22 @@
         document.getElementById('btnGoToLobbyFromTable').addEventListener('click', () => switchTab('tabLobby'));
         document.getElementById('btnGoToLobbyFromMatches').addEventListener('click', () => switchTab('tabLobby'));
 
+        const btnGoToMatchesFromLobby = document.getElementById('btnGoToMatchesFromLobby');
+        if (btnGoToMatchesFromLobby) {
+            btnGoToMatchesFromLobby.addEventListener('click', () => switchTab('tabMatches'));
+        }
+
         // LOTTNINGSKNAPP (I VÄNTRUMMET)
-        document.getElementById('btnDrawSchedule').addEventListener('click', () => {
-            const tourney = getActiveTournament();
-            if (!tourney) return;
-            if (tourney.status === 'active' || tourney.status === 'completed') {
-                switchTab('tabMatches');
-            } else {
+        const btnDrawSchedule = document.getElementById('btnDrawSchedule');
+        if (btnDrawSchedule) {
+            btnDrawSchedule.addEventListener('click', () => {
+                const tourney = getActiveTournament();
+                if (!tourney) return;
+                const isDrawn = tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0);
+                if (isDrawn) {
+                    switchTab('tabMatches');
+                    return;
+                }
                 if (!isUserOrganizerOf(tourney)) {
                     alert(`Lottningen måste startas av turneringens arrangör (${tourney.organizer ? tourney.organizer.name : 'Admin'}). Om du är arrangör och styr från en annan enhet, ange din arrangörskod.`);
                     const guestPrompt = document.getElementById('authNoticeGuestPrompt');
@@ -2159,34 +2187,36 @@
                     return;
                 }
                 executeDraw(tourney);
-            }
-        });
+            });
+        }
 
         // LOTTNINGSKNAPP (I BANNERN)
-        document.getElementById('btnBannerDraw').addEventListener('click', () => {
-            const tourney = getActiveTournament();
-            if (!tourney) return;
-            if (!isUserOrganizerOf(tourney)) {
-                alert(`Lottningen måste startas av turneringens arrangör (${tourney.organizer ? tourney.organizer.name : 'Admin'}). Om du är arrangör och styr från en annan enhet, ange din arrangörskod.`);
-                openAuthModalWithRegisteredList();
-                return;
-            }
-            executeDraw(tourney);
-        });
-
-        // KNAPP: GÖR NY LOTTNING
-        document.getElementById('btnReDrawSchedule').addEventListener('click', () => {
-            const tourney = getActiveTournament();
-            if (!tourney) return;
-            if (!isUserOrganizerOf(tourney)) {
-                alert(`Endast turneringens arrangör (${tourney.organizer ? tourney.organizer.name : 'Admin'}) kan göra en ny lottning.`);
-                openAuthModalWithRegisteredList();
-                return;
-            }
-            if (confirm('Vill du göra en ny lottning? Spelordningen kommer att slumpas om för alla 8 spelare.')) {
+        const btnBannerDraw = document.getElementById('btnBannerDraw');
+        if (btnBannerDraw) {
+            btnBannerDraw.addEventListener('click', () => {
+                const tourney = getActiveTournament();
+                if (!tourney) return;
+                const isDrawn = tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0);
+                if (isDrawn) {
+                    switchTab('tabMatches');
+                    return;
+                }
+                if (!isUserOrganizerOf(tourney)) {
+                    alert(`Lottningen måste startas av turneringens arrangör (${tourney.organizer ? tourney.organizer.name : 'Admin'}). Om du är arrangör och styr från en annan enhet, ange din arrangörskod.`);
+                    openAuthModalWithRegisteredList();
+                    return;
+                }
                 executeDraw(tourney);
-            }
-        });
+            });
+        }
+
+        // KNAPP: GÖR NY LOTTNING (Låst - kan inte göras om)
+        const btnReDraw = document.getElementById('btnReDrawSchedule');
+        if (btnReDraw) {
+            btnReDraw.addEventListener('click', () => {
+                alert('Lottningen är låst och kan inte göras om.');
+            });
+        }
 
         // Skapa ny turnering (Med arrangörsuppgifter och valfri Plats 1 placering)
         document.getElementById('formNewTournament').addEventListener('submit', (e) => {

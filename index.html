@@ -169,9 +169,14 @@
                                     </p>
                                 </div>
                             </div>
-                            <button type="button" class="btn btn-secondary btn-lg" id="btnDrawSchedule" disabled style="opacity: 0.5; cursor: not-allowed;">
-                                <span>🎲</span> Lotta spelordning (<span id="drawScheduleBtnCount">0</span>/8)
-                            </button>
+                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                <button type="button" class="btn btn-secondary btn-lg" id="btnDrawSchedule" disabled style="opacity: 0.5; cursor: not-allowed;">
+                                    <span>🎲</span> Lotta spelordning (<span id="drawScheduleBtnCount">0</span>/8)
+                                </button>
+                                <button type="button" class="btn btn-primary btn-lg" id="btnGoToMatchesFromLobby" style="display: none;">
+                                    <span>🎾</span> Visa spelschema
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -304,9 +309,9 @@
                             <!-- Fylls dynamiskt från app.js -->
                         </div>
 
-                        <button type="button" class="btn btn-secondary btn-sm" id="btnReDrawSchedule" title="Slumpa om spelordningen och gör en ny lottning">
-                            <span>🎲</span> Gör ny lottning
-                        </button>
+                        <div class="draw-locked-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--success); font-weight: 700; background: rgba(0, 230, 118, 0.1); border: 1px solid rgba(0, 230, 118, 0.3); padding: 5px 12px; border-radius: var(--radius-full);">
+                            <span>🔒</span> Lottningen är klar och låst
+                        </div>
                     </div>
 
                     <div class="courts-container">
