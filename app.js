@@ -1861,7 +1861,7 @@
                 if (loggedInText) loggedInText.textContent = `Inloggad som: ${appState.currentUser.name}`;
                 if (loggedInSub) {
                     if (appState.currentUser.role === 'admin') {
-                        loggedInSub.textContent = `Roll: ${roleLabel} · Masterkod: ulrik`;
+                        loggedInSub.textContent = `Roll: ${roleLabel}`;
                     } else {
                         loggedInSub.textContent = `Roll: ${roleLabel}${appState.currentUser.pin ? ' · Personlig kod: ' + appState.currentUser.pin : ''}`;
                     }
@@ -2220,7 +2220,7 @@
             // Visa arrangörskod och arrangörsruta (visas om användaren är arrangör)
             const badgeCode = document.getElementById('badgeOrganizerCode');
             if (badgeCode) {
-                badgeCode.innerHTML = `Kod: ${tourney.adminCode || 'PT-88'} <span style="font-size: 11px; opacity: 0.85; font-weight: normal; margin-left: 4px;">(Masterkod: <strong>ulrik</strong>)</span>`;
+                badgeCode.textContent = `Kod: ${tourney.adminCode || 'PT-88'}`;
             }
 
             const orgBox = document.getElementById('modalOrganizerAccessBox');
@@ -2466,7 +2466,7 @@
                 }
 
                 if (!isAuthorized) {
-                    alert(`Ogiltig arrangörskod för "${tourney ? tourney.name : 'turneringen'}". Ange arrangörskoden (t.ex. ${tourney ? (tourney.adminCode || 'PT-xx') : 'PT-xx'}) eller masterkoden "ulrik".`);
+                    alert(`Ogiltig arrangörskod för "${tourney ? tourney.name : 'turneringen'}". Kontrollera koden och försök igen.`);
                     return;
                 }
 
