@@ -389,7 +389,7 @@
             if (!t.organizer) {
                 t.organizer = {
                     id: 'org_' + (t.id || 'default'),
-                    name: 'Ulrik'
+                    name: ''
                 };
             }
             // Säkerställ att spelare i turneringen har 4-siffrig PIN
@@ -463,7 +463,7 @@
         }
 
         // Om skaparen besöker sin egen turnering på denna enhet och ingen användare är inloggad:
-        const activeT = appState.tournaments.find(t => t.id === appState.activeTournamentId) || (appState.tournaments[0] || null);
+        const activeT = appState.activeTournamentId ? appState.tournaments.find(t => t.id === appState.activeTournamentId) : null;
         if (activeT && !appState.currentUser) {
             const keys = getAdminKeys();
             if (activeT.adminKey && keys[activeT.id] === activeT.adminKey) {
@@ -776,10 +776,34 @@
             tourney.deletedAt = new Date().toISOString();
             appState.deletedTournaments.unshift(tourney);
 
-            // Om vi raderade den aktiva turneringen, byt till nästa tillgängliga
-            if (appState.activeTournamentId === tourneyId) {
-                appState.activeTournamentId = appState.tournaments.length > 0 ? appState.tournaments[0].id : null;
+            // Nollställ ALLT och visa startskärmen automatiskt
+            appState.activeTournamentId = null;
+
+            // Om inloggad användare var spelare eller arrangör specifikt för denna turnering, nollställ sessionen
+            if (appState.currentUser) {
+                if (appState.currentUser.role === 'player' || (appState.currentUser.tourneyKey && appState.currentUser.tourneyKey === tourney.adminKey)) {
+                    appState.currentUser = null;
+                    saveUser();
+                }
             }
+
+            // Rensa URL-parametrar (?t=... eller #invite=...) så att adressfältet inte pekar på den raderade turneringen
+            try {
+                history.replaceState(null, '', window.location.pathname);
+            } catch (e) {}
+
+            // Återställ sidtitel
+            document.title = 'Pinta Padel Tour – Turneringsmotor & Lottning';
+            const pageTitleEl = document.getElementById('pageTitle');
+            if (pageTitleEl) pageTitleEl.textContent = 'Pinta Padel Tour – Turneringsmotor & Lottning';
+
+            // Nollställ flikarna till Väntrum (tabLobby)
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+            const lobbyBtn = document.querySelector('.tab-btn[data-tab="tabLobby"]');
+            const lobbySec = document.getElementById('tabLobby');
+            if (lobbyBtn) lobbyBtn.classList.add('active');
+            if (lobbySec) lobbySec.classList.add('active');
 
             saveState();
             renderApp();
@@ -1357,9 +1381,18 @@
         const elLobbyName = document.getElementById('lobbyOrganizerNameText');
         const btnBannerDraw = document.getElementById('btnBannerDraw');
 
+        const bannerEl = document.getElementById('tournamentBanner');
+        const navTabsEl = document.getElementById('mainNavTabs');
+        const contentEl = document.getElementById('contentContainer');
+        const emptyStateEl = document.getElementById('emptyStateContainer');
+        const drawCelebration = document.getElementById('drawCelebrationBanner');
+        const guestBanner = document.getElementById('guestModeBanner');
+
         if (tourney) {
-            document.getElementById('contentContainer').style.display = 'block';
-            document.getElementById('emptyStateContainer').style.display = 'none';
+            if (bannerEl) bannerEl.style.display = 'flex';
+            if (navTabsEl) navTabsEl.style.display = '';
+            if (contentEl) contentEl.style.display = 'block';
+            if (emptyStateEl) emptyStateEl.style.display = 'none';
 
             document.getElementById('activeTournamentTitle').textContent = tourney.name;
             const badge = document.getElementById('activeTournamentBadge');
@@ -1428,11 +1461,26 @@
             renderMatches(tourney);
 
         } else {
-            document.getElementById('activeTournamentTitle').textContent = 'Ingen aktiv turnering';
-            document.getElementById('activeTournamentBadge').textContent = 'Skapa ny turnering';
-            document.getElementById('activeTournamentMeta').textContent = 'Klicka nedan för att starta en turnering och bjuda in spelare';
-            document.getElementById('contentContainer').style.display = 'none';
-            document.getElementById('emptyStateContainer').style.display = 'block';
+            // Nollställt läge: Dölj turneringsbanner och flikar, visa startskärmen
+            if (bannerEl) bannerEl.style.display = 'none';
+            if (navTabsEl) navTabsEl.style.display = 'none';
+            if (contentEl) contentEl.style.display = 'none';
+            if (emptyStateEl) emptyStateEl.style.display = 'block';
+            if (drawCelebration) drawCelebration.style.display = 'none';
+            if (guestBanner) guestBanner.style.display = 'none';
+
+            // Uppdatera arkiv-räknaren på startskärmen om sparade turneringar finns
+            const totalHistoryCount = appState.tournaments.length + (appState.deletedTournaments ? appState.deletedTournaments.length : 0);
+            const btnEmptyArchive = document.getElementById('btnEmptyShowArchive');
+            const emptyCountEl = document.getElementById('emptyStateArchiveCount');
+            if (btnEmptyArchive) {
+                if (totalHistoryCount > 0) {
+                    btnEmptyArchive.style.display = 'inline-flex';
+                    if (emptyCountEl) emptyCountEl.textContent = totalHistoryCount;
+                } else {
+                    btnEmptyArchive.style.display = 'none';
+                }
+            }
 
             if (elBannerOrg) elBannerOrg.style.display = 'none';
             if (elLobbyBar) elLobbyBar.style.display = 'none';
@@ -1846,6 +1894,12 @@
         if (trashCountEl) trashCountEl.textContent = trashCount;
         if (tabCountEl) tabCountEl.textContent = activeCount;
 
+        const btnBackToStart = document.getElementById('btnBackToStartFromArchive');
+        if (btnBackToStart) {
+            const active = getActiveTournament();
+            btnBackToStart.textContent = active ? '← Tillbaka till turneringen' : '← Tillbaka till startskärmen';
+        }
+
         // 1. Rendera aktiva turneringar
         historyContainer.innerHTML = '';
         if (activeCount === 0) {
@@ -1982,7 +2036,7 @@
             if (avatar) avatar.textContent = '👤';
             if (nameEl) nameEl.textContent = 'Logga in';
             if (btnAuth) btnAuth.classList.add('not-logged-in');
-            if (guestBanner) guestBanner.style.display = 'flex';
+            if (guestBanner) guestBanner.style.display = activeTourney ? 'flex' : 'none';
         }
 
         // Uppdatera även inloggningsmodalens status-box
@@ -2130,6 +2184,26 @@
         if (targetBtn) targetBtn.classList.add('active');
         if (targetSec) targetSec.classList.add('active');
 
+        const tourney = getActiveTournament();
+        const bannerEl = document.getElementById('tournamentBanner');
+        const emptyStateEl = document.getElementById('emptyStateContainer');
+        const contentEl = document.getElementById('contentContainer');
+        const navTabsEl = document.getElementById('mainNavTabs');
+
+        if (!tourney) {
+            if (tabId === 'tabHistory') {
+                if (bannerEl) bannerEl.style.display = 'none';
+                if (emptyStateEl) emptyStateEl.style.display = 'none';
+                if (contentEl) contentEl.style.display = 'block';
+                if (navTabsEl) navTabsEl.style.display = '';
+            } else {
+                if (bannerEl) bannerEl.style.display = 'none';
+                if (emptyStateEl) emptyStateEl.style.display = 'block';
+                if (contentEl) contentEl.style.display = 'none';
+                if (navTabsEl) navTabsEl.style.display = 'none';
+            }
+        }
+
         // Scrolla mjukt upp på mobil så man inte hamnar mitt i en lång tabell eller spelschema
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -2221,6 +2295,27 @@
 
         document.getElementById('btnNewTournament').addEventListener('click', openNewTournamentModal);
         document.getElementById('btnEmptyCreate').addEventListener('click', openNewTournamentModal);
+
+        const btnEmptyShowArchive = document.getElementById('btnEmptyShowArchive');
+        if (btnEmptyShowArchive) {
+            btnEmptyShowArchive.addEventListener('click', () => {
+                switchTab('tabHistory');
+            });
+        }
+
+        const btnBackToStart = document.getElementById('btnBackToStartFromArchive');
+        if (btnBackToStart) {
+            btnBackToStart.addEventListener('click', () => {
+                const active = getActiveTournament();
+                if (active) {
+                    switchTab('tabLobby');
+                } else {
+                    appState.activeTournamentId = null;
+                    renderApp();
+                    switchTab('tabLobby');
+                }
+            });
+        }
 
         document.getElementById('btnGoToMatchesFromBanner').addEventListener('click', () => {
             document.getElementById('drawCelebrationBanner').style.display = 'none';

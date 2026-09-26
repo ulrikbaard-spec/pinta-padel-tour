@@ -380,6 +380,11 @@
             <!-- FLIK 4: ARKIV / SPARADE TURNERINGAR & PAPPERSKORG -->
             <section id="tabHistory" class="view-section">
                 <div class="card">
+                    <div style="margin-bottom: 14px;">
+                        <button type="button" class="btn btn-secondary btn-sm" id="btnBackToStartFromArchive" style="border-radius: var(--radius-full);">
+                            ← Tillbaka till startskärmen
+                        </button>
+                    </div>
                     <div class="card-header" style="margin-bottom: 16px;">
                         <div>
                             <h2 class="card-title">
@@ -428,17 +433,47 @@
 
         </main>
 
-        <!-- Tomt läge om inga turneringar finns alls -->
-        <section id="emptyStateContainer" style="display: none;">
-            <div class="card" style="text-align: center; padding: 48px 24px;">
-                <div style="font-size: 54px; margin-bottom: 16px;">🎾</div>
-                <h2 style="font-size: 24px; font-weight: 800; margin-bottom: 8px;">Välkommen till Pinta Padel Tour</h2>
-                <p style="color: var(--text-secondary); max-width: 480px; margin: 0 auto 24px;">
-                    Skapa en ny turnering för att komma igång. Turneringen skapas tom och du får direkt en länk att skicka på Messenger eller WhatsApp till dina vänner!
+        <!-- Startskärm: Visas när ingen turnering är vald eller när en turnering har raderats -->
+        <section id="emptyStateContainer" class="start-screen" style="display: none;">
+            <div class="card start-card">
+                <div class="start-icon">🎾</div>
+                <h2 class="start-title">Välkommen till Pinta Padel Tour</h2>
+                <p class="start-subtitle">
+                    Turneringsmotor, lottning och liveresultat för 8 spelare på 2 banor.
                 </p>
-                <button class="btn btn-primary" id="btnEmptyCreate">
-                    <span>➕</span> Skapa Pinta Padel Tour-turnering
-                </button>
+
+                <div class="start-actions">
+                    <button class="btn btn-primary btn-lg" id="btnEmptyCreate">
+                        <span>➕</span> Skapa ny turnering
+                    </button>
+                    <button class="btn btn-secondary btn-lg" id="btnEmptyShowArchive" style="display: none;">
+                        <span>📁</span> Turneringsarkiv (<span id="emptyStateArchiveCount">0</span>)
+                    </button>
+                </div>
+
+                <div class="start-features">
+                    <div class="start-feature-item">
+                        <span class="feature-icon">⚡</span>
+                        <div class="feature-text">
+                            <strong>100% Utan Mail</strong>
+                            <span>Deltagarna fyller bara i sitt namn och får en personlig PIN-kod.</span>
+                        </div>
+                    </div>
+                    <div class="start-feature-item">
+                        <span class="feature-icon">📢</span>
+                        <div class="feature-text">
+                            <strong>Dela Direkt</strong>
+                            <span>Kort länk för Messenger, WhatsApp eller SMS.</span>
+                        </div>
+                    </div>
+                    <div class="start-feature-item">
+                        <span class="feature-icon">🎲</span>
+                        <div class="feature-text">
+                            <strong>Lottning &amp; Live-tabell</strong>
+                            <span>7 omgångar lottas med ett klick och tabellen uppdateras i realtid.</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
 

@@ -1640,6 +1640,102 @@ body {
 }
 
 /* ==========================================================================
+   STARTSKÄRM / TOMT LÄGE (EMPTY STATE)
+   ========================================================================== */
+
+.start-screen {
+    max-width: 680px;
+    margin: 20px auto 40px;
+    animation: fadeIn 0.3s ease;
+}
+
+.start-card {
+    text-align: center;
+    padding: 44px 28px;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, rgba(24, 40, 35, 0.95) 0%, rgba(19, 32, 28, 0.98) 100%);
+    border: 1px solid rgba(0, 230, 118, 0.2);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+}
+
+.start-icon {
+    font-size: 56px;
+    margin-bottom: 14px;
+    filter: drop-shadow(0 0 20px var(--primary-glow));
+}
+
+.start-title {
+    font-size: 24px;
+    font-weight: 900;
+    color: #ffffff;
+    margin-bottom: 8px;
+    letter-spacing: -0.02em;
+}
+
+.start-subtitle {
+    color: var(--text-secondary);
+    font-size: 14.5px;
+    max-width: 480px;
+    margin: 0 auto 24px;
+    line-height: 1.45;
+}
+
+.start-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 360px;
+    margin: 0 auto 28px;
+}
+
+.start-actions .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 13px 24px;
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.start-features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    text-align: left;
+    margin-top: 16px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+}
+
+.start-feature-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 12px;
+}
+
+.feature-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.feature-text strong {
+    display: block;
+    font-size: 13px;
+    color: #fff;
+    margin-bottom: 2px;
+}
+
+.feature-text span {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    line-height: 1.35;
+    display: block;
+}
+
+/* ==========================================================================
    RESPONSIVE DESIGN (MOBIL- & TABLETANPASSNING)
    ========================================================================== */
 
@@ -1656,6 +1752,25 @@ body {
     /* Bas & Layout */
     .app-wrapper {
         padding: 10px 12px calc(60px + env(safe-area-inset-bottom));
+    }
+
+    /* Startskärm på mobil */
+    .start-screen {
+        margin: 10px auto 30px;
+    }
+    .start-card {
+        padding: 28px 16px;
+    }
+    .start-title {
+        font-size: 20px;
+    }
+    .start-subtitle {
+        font-size: 13px;
+        margin-bottom: 20px;
+    }
+    .start-features {
+        grid-template-columns: 1fr;
+        gap: 10px;
     }
 
     /* Header: Kompakt, 1 rad på mobil */
