@@ -1320,7 +1320,12 @@
 
             const isOrg = isUserOrganizerOf(tourney);
             const orgName = (tourney.organizer && tourney.organizer.name) ? tourney.organizer.name : 'Ulrik';
-            const orgPrefix = isOrg ? '👑 Du är arrangör' : `👑 Arrangör: ${orgName}`;
+
+            const elBannerOrg = document.getElementById('bannerOrganizerName');
+            if (elBannerOrg) elBannerOrg.textContent = orgName;
+
+            const elLobbyOrg = document.getElementById('lobbyOrganizerNameText');
+            if (elLobbyOrg) elLobbyOrg.textContent = orgName;
 
             if (tourney.status === 'lobby' || playerCount < 8) {
                 btnBannerDraw.style.display = 'none';
@@ -1329,7 +1334,7 @@
                 badge.style.borderColor = 'rgba(255, 183, 3, 0.4)';
                 badge.style.background = 'rgba(255, 183, 3, 0.12)';
                 document.getElementById('activeTournamentMeta').textContent = 
-                    `${orgPrefix} · ${8 - playerCount} platser kvar · Skicka inbjudningslänk via Messenger eller E-post`;
+                    `${8 - playerCount} platser kvar · Bjud in spelare via Messenger, WhatsApp eller länk`;
             } else if (playerCount === 8 && tourney.status !== 'active' && tourney.status !== 'completed') {
                 btnBannerDraw.style.display = 'inline-flex';
                 badge.textContent = `🟡 8/8 anmälda · Redo för lottning`;
@@ -1436,6 +1441,8 @@
                 const isOrganizer = isUserOrganizerOf(tourney);
                 const isSelf = appState.currentUser && appState.currentUser.name && 
                     (appState.currentUser.name.toLowerCase() === pName.toLowerCase());
+                const isThisPlayerOrganizer = tourney.organizer && tourney.organizer.name && 
+                    (pName.toLowerCase() === tourney.organizer.name.toLowerCase());
 
                 // Sekretess för PIN-koder:
                 // - Spelaren själv ser sin kod: "🔑 Min kod: 4218"
@@ -1461,7 +1468,11 @@
                     <div class="slot-left">
                         <div class="slot-avatar">${escapeHtml(avatarLetter)}</div>
                         <div class="slot-info">
-                            <div class="slot-name">${escapeHtml(pName)} ${isSelf ? '<span style="font-size: 11px; background: var(--primary); color: #000; padding: 2px 6px; border-radius: 10px; font-weight: 700; margin-left: 6px;">DU</span>' : ''}</div>
+                            <div class="slot-name">
+                                ${escapeHtml(pName)} 
+                                ${isSelf ? '<span style="font-size: 11px; background: var(--primary); color: #000; padding: 2px 6px; border-radius: 10px; font-weight: 700; margin-left: 6px;">DU</span>' : ''}
+                                ${isThisPlayerOrganizer ? '<span style="font-size: 11px; background: rgba(255, 183, 3, 0.2); color: #ffb703; border: 1px solid rgba(255, 183, 3, 0.45); padding: 2px 7px; border-radius: 10px; font-weight: 800; margin-left: 6px;" title="Turneringens arrangör">👑 Arrangör</span>' : ''}
+                            </div>
                             <div class="slot-meta">
                                 <span>Plats ${i + 1}</span>
                                 ${pinBadgeHtml}
@@ -1623,9 +1634,12 @@
                 diffClass = 'diff-negative';
             }
 
+            const isOrgPlayer = tourney.organizer && tourney.organizer.name && 
+                (player.name.toLowerCase() === tourney.organizer.name.toLowerCase());
+
             tr.innerHTML = `
                 <td class="rank-cell">${rankDisplay}</td>
-                <td class="player-name-cell">${escapeHtml(player.name)}</td>
+                <td class="player-name-cell">${escapeHtml(player.name)} ${isOrgPlayer ? '<span title="Turneringens arrangör" style="font-size: 11.5px; margin-left: 4px;">👑</span>' : ''}</td>
                 <td style="text-align:center;">${player.matchesPlayed}</td>
                 <td style="text-align:center;color:var(--primary);font-weight:700;">${player.wins}</td>
                 <td style="text-align:center;color:var(--text-muted);">${player.losses}</td>
