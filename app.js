@@ -16,7 +16,7 @@
     const ADMIN_KEYS_KEY = 'pinta_padel_admin_keys_v2';
 
     let appState = {
-        currentUser: null,           // { id, name, email, role: 'admin'|'player', method }
+        currentUser: null,           // { id, name, pin, role: 'admin'|'player' }
         activeTournamentId: null,
         tournaments: [],             // Aktiva turneringar
         deletedTournaments: [],      // Papperskorg (kan återställas!)
@@ -56,13 +56,8 @@
         if (tourney.adminKey && keys[tourney.id] === tourney.adminKey) {
             return true;
         }
-        // 2. Har inloggad användare admin-roll och matchande e-post/namn/nyckel?
+        // 2. Har inloggad användare admin-roll och matchande namn/nyckel?
         if (appState.currentUser && appState.currentUser.role === 'admin') {
-            if (tourney.organizer && tourney.organizer.email && appState.currentUser.email) {
-                if (tourney.organizer.email.toLowerCase() === appState.currentUser.email.toLowerCase()) {
-                    return true;
-                }
-            }
             if (tourney.organizer && tourney.organizer.name && appState.currentUser.name) {
                 if (tourney.organizer.name.toLowerCase() === appState.currentUser.name.toLowerCase()) {
                     return true;
@@ -368,10 +363,15 @@
             if (!t.organizer) {
                 t.organizer = {
                     id: 'org_' + (t.id || 'default'),
-                    name: 'Ulrik',
-                    email: 'ulrik@pinta.se'
+                    name: 'Ulrik'
                 };
             }
+            // Säkerställ att spelare i turneringen har 4-siffrig PIN
+            (t.players || []).forEach((p, idx) => {
+                if (typeof p === 'object' && !p.pin) {
+                    p.pin = Math.floor(1000 + Math.random() * 9000).toString();
+                }
+            });
             // Om turneringen finns lokalt men nyckeln saknas i nyckelregistret, spara den
             if (!currentAdminKeys[t.id]) {
                 currentAdminKeys[t.id] = t.adminKey;
@@ -389,19 +389,27 @@
             const regRaw = localStorage.getItem(PLAYERS_KEY);
             if (regRaw) {
                 appState.registeredPlayers = JSON.parse(regRaw);
+                // Säkerställ att varje spelare har en 4-siffrig PIN
+                let updatedPins = false;
+                appState.registeredPlayers.forEach(rp => {
+                    if (!rp.pin) {
+                        rp.pin = Math.floor(1000 + Math.random() * 9000).toString();
+                        updatedPins = true;
+                    }
+                });
+                if (updatedPins) saveRegisteredPlayers();
             } else {
                 // Samla befintliga spelare från turneringar om registret är tomt
                 const existingMap = new Map();
                 (appState.tournaments || []).forEach(t => {
                     (t.players || []).forEach(p => {
                         const name = typeof p === 'string' ? p : p.name;
-                        const email = typeof p === 'string' ? '' : (p.email || '');
+                        const pin = (typeof p === 'object' && p.pin) ? p.pin : Math.floor(1000 + Math.random() * 9000).toString();
                         if (name && !existingMap.has(name.toLowerCase())) {
                             existingMap.set(name.toLowerCase(), {
                                 id: (typeof p === 'object' && p.id) ? p.id : ('p_' + Math.random().toString(36).substr(2, 6)),
                                 name: name,
-                                email: email || `${name.toLowerCase().replace(/\s+/g, '.')}@example.com`,
-                                method: (typeof p === 'object' && p.method) ? p.method : 'registered',
+                                pin: pin,
                                 registeredAt: new Date().toISOString()
                             });
                         }
@@ -435,12 +443,11 @@
                 appState.currentUser = {
                     id: (activeT.organizer && activeT.organizer.id) ? activeT.organizer.id : 'org_creator',
                     name: (activeT.organizer && activeT.organizer.name) ? activeT.organizer.name : 'Arrangör',
-                    email: (activeT.organizer && activeT.organizer.email) ? activeT.organizer.email : '',
                     role: 'admin',
                     tourneyKey: activeT.adminKey
                 };
                 saveUser();
-            } else if (appState.currentUser.role !== 'admin' && activeT.organizer && activeT.organizer.email && appState.currentUser.email === activeT.organizer.email) {
+            } else if (appState.currentUser.role !== 'admin' && activeT.organizer && activeT.organizer.name && appState.currentUser.name.toLowerCase() === activeT.organizer.name.toLowerCase()) {
                 appState.currentUser.role = 'admin';
                 saveUser();
             }
@@ -557,7 +564,6 @@
                 appState.currentUser = {
                     id: (active.organizer && active.organizer.id) ? active.organizer.id : ('admin_' + active.id),
                     name: (active.organizer && active.organizer.name) ? active.organizer.name : 'Arrangör',
-                    email: (active.organizer && active.organizer.email) ? active.organizer.email : '',
                     role: 'admin',
                     tourneyKey: adminKeyParam
                 };
@@ -807,10 +813,10 @@
     }
 
     /**
-     * Skapa ny turnering i Pinta Padel Tour
+     * Skapa ny turnering i Pinta Padel Tour (Helt utan mail)
      * - Genererar unik adminKey och arrangörskod (PT-xx)
      * - Sparar adminKey i localStorage på denna enhet -> Automatisk arrangörsbehörighet!
-     * - Om organizerPlays är sant: lägger automatiskt in arrangören på Plats 1 direkt.
+     * - Om organizerPlays är sant: lägger automatiskt in arrangören på Plats 1 direkt med personlig PIN-kod.
      */
     function createNewTournament(name, format, pointSystem, organizerData, organizerPlays = true) {
         const id = 'pinta_' + Date.now();
@@ -818,11 +824,10 @@
         const adminCode = 'PT-' + Math.floor(10 + Math.random() * 90);
 
         const orgName = (organizerData && organizerData.name) ? organizerData.name.trim() : 'Ulrik';
-        const orgEmail = (organizerData && organizerData.email) ? organizerData.email.trim().toLowerCase() : 'ulrik@pinta.se';
 
         // Spara senaste arrangörsuppgifter i localStorage för bekvämlighet
         try {
-            localStorage.setItem('pinta_padel_last_organizer', JSON.stringify({ name: orgName, email: orgEmail }));
+            localStorage.setItem('pinta_padel_last_organizer', JSON.stringify({ name: orgName }));
         } catch (e) {}
 
         const newTourney = {
@@ -839,8 +844,7 @@
             adminCode: adminCode,
             organizer: {
                 id: 'org_' + Date.now(),
-                name: orgName,
-                email: orgEmail
+                name: orgName
             }
         };
 
@@ -851,19 +855,17 @@
         appState.currentUser = {
             id: newTourney.organizer.id,
             name: orgName,
-            email: orgEmail,
             role: 'admin',
             tourneyKey: adminKey
         };
-        saveUser();
 
-        // Om arrangören också ska spela: lägg till på Plats 1 direkt!
+        // Om arrangören också ska spela: lägg till på Plats 1 direkt med en egen 4-siffrig PIN!
         if (organizerPlays) {
+            const orgPin = Math.floor(1000 + Math.random() * 9000).toString();
             const orgPlayer = {
                 id: newTourney.organizer.id,
                 name: orgName,
-                email: orgEmail,
-                method: 'manual',
+                pin: orgPin,
                 registeredAt: new Date().toISOString(),
                 avatar: orgName.charAt(0).toUpperCase()
             };
@@ -871,21 +873,20 @@
 
             // Spara i centrala spelarregistret
             if (!appState.registeredPlayers) appState.registeredPlayers = [];
-            const exists = appState.registeredPlayers.some(rp => 
-                (rp.email && rp.email === orgEmail) || rp.name.toLowerCase() === orgName.toLowerCase()
-            );
+            const exists = appState.registeredPlayers.some(rp => rp.name.toLowerCase() === orgName.toLowerCase());
             if (!exists) {
                 appState.registeredPlayers.push({
                     id: orgPlayer.id,
                     name: orgName,
-                    email: orgEmail,
-                    method: 'manual',
+                    pin: orgPin,
                     registeredAt: new Date().toISOString()
                 });
                 saveRegisteredPlayers();
             }
+            appState.currentUser.pin = orgPin;
         }
 
+        saveUser();
         appState.tournaments.unshift(newTourney);
         appState.activeTournamentId = id;
         saveState();
@@ -896,9 +897,12 @@
     }
 
     /**
-     * Registrera en spelare i Pinta Padel Tour (Obligatorisk registrering med namn och e-post)
+     * Registrera en spelare i Pinta Padel Tour (100% utan mail: bara namn + 4-siffrig kod)
+     * - Slumpar en 4-siffrig PIN-kod
+     * - Sparar automatiskt i telefonen (localStorage) så att spelaren är inloggad direkt
+     * - Visar bekräftelsemodal med koden direkt på skärmen
      */
-    function registerPlayer(tourney, playerData) {
+    function registerPlayer(tourney, playerData, showConfirmationModal = true) {
         if (!tourney) return false;
 
         if (tourney.players.length >= 8) {
@@ -906,71 +910,74 @@
             return false;
         }
 
-        const name = (playerData.name || '').trim();
-        const email = (playerData.email || '').trim().toLowerCase();
-        const method = playerData.method || 'email';
+        const name = (typeof playerData === 'string' ? playerData : (playerData && playerData.name ? playerData.name : '')).trim();
 
         if (!name) {
-            alert('Vänligen ange ett giltigt spelarnamn.');
-            return false;
-        }
-
-        if (!email) {
-            alert('Vänligen ange en giltig e-postadress. Alla spelare måste registreras med e-post innan de kan läggas in.');
+            alert('Vänligen ange ett namn för att ta en plats.');
             return false;
         }
 
         const alreadyExists = tourney.players.some(p => {
             const pName = typeof p === 'string' ? p : p.name;
-            const pEmail = typeof p === 'string' ? '' : (p.email || '');
-            return pName.toLowerCase() === name.toLowerCase() || (email && pEmail === email);
+            return pName.toLowerCase() === name.toLowerCase();
         });
 
         if (alreadyExists) {
-            alert(`Spelaren "${name}" (${email}) är redan anmäld till denna turnering.`);
+            alert(`Spelaren "${name}" är redan anmäld till denna turnering.`);
             return false;
         }
 
-        // Spara eller uppdatera i det centrala spelarregistret (appState.registeredPlayers)
+        // Hämta eller skapa i centrala spelarregistret
         if (!appState.registeredPlayers) appState.registeredPlayers = [];
-        let regPlayer = appState.registeredPlayers.find(rp => 
-            rp.name.toLowerCase() === name.toLowerCase() || (email && rp.email && rp.email.toLowerCase() === email)
-        );
+        let regPlayer = appState.registeredPlayers.find(rp => rp.name.toLowerCase() === name.toLowerCase());
+
+        const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
 
         if (!regPlayer) {
             regPlayer = {
                 id: 'player_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
                 name: name,
-                email: email,
-                method: method,
+                pin: generatedPin,
                 registeredAt: new Date().toISOString()
             };
             appState.registeredPlayers.push(regPlayer);
+            saveRegisteredPlayers();
+        } else if (!regPlayer.pin) {
+            regPlayer.pin = generatedPin;
             saveRegisteredPlayers();
         }
 
         const newPlayer = {
             id: regPlayer.id,
             name: regPlayer.name,
-            email: regPlayer.email,
-            method: method,
+            pin: regPlayer.pin,
             registeredAt: new Date().toISOString(),
             avatar: regPlayer.name.charAt(0).toUpperCase()
         };
 
         tourney.players.push(newPlayer);
 
-        // Om spelaren registrerar sig själv via Google eller e-postformuläret
-        if (method === 'google' || method === 'email') {
-            appState.currentUser = {
-                id: newPlayer.id,
-                name: newPlayer.name,
-                email: newPlayer.email,
-                role: 'player',
-                method: method
-            };
-            saveUser();
-            renderUserStatus();
+        // Spara automatiskt i spelarens telefon och logga in direkt!
+        appState.currentUser = {
+            id: newPlayer.id,
+            name: newPlayer.name,
+            pin: newPlayer.pin,
+            role: 'player'
+        };
+        saveUser();
+        renderUserStatus();
+
+        // Visa koden direkt på skärmen i bekräftelsemodalen
+        if (showConfirmationModal) {
+            const nameEl = document.getElementById('pinConfirmPlayerName');
+            const badgeEl = document.getElementById('pinConfirmSlotBadge');
+            const codeEl = document.getElementById('pinConfirmCodeDisplay');
+
+            if (nameEl) nameEl.textContent = newPlayer.name;
+            if (badgeEl) badgeEl.textContent = `Plats ${tourney.players.length} av 8`;
+            if (codeEl) codeEl.textContent = newPlayer.pin;
+
+            openModal('modalPinConfirmation');
         }
 
         if (tourney.players.length === 8) {
@@ -989,12 +996,9 @@
 
         const targetPlayer = tourney.players[playerIndex];
         const pName = typeof targetPlayer === 'string' ? targetPlayer : targetPlayer.name;
-        const pEmail = typeof targetPlayer === 'string' ? '' : (targetPlayer.email || '');
 
-        const isSelf = appState.currentUser && (
-            (appState.currentUser.email && pEmail && appState.currentUser.email.toLowerCase() === pEmail.toLowerCase()) ||
-            (appState.currentUser.name && pName && appState.currentUser.name.toLowerCase() === pName.toLowerCase())
-        );
+        const isSelf = appState.currentUser && appState.currentUser.name && pName && 
+            (appState.currentUser.name.toLowerCase() === pName.toLowerCase());
 
         if (!isUserOrganizerOf(tourney) && !isSelf) {
             alert('Endast turneringens arrangör kan ta bort anmälda spelare. Om du är arrangör och styr från en annan enhet, ange din arrangörskod.');
@@ -1055,7 +1059,7 @@
     }
 
     // =========================================================================
-    // 8. INBJUDNINGAR & DELNING (MESSENGER, MAIL, WHATSAPP)
+    // 8. INBJUDNINGAR & DELNING (MESSENGER, WHATSAPP, LÄNK)
     // =========================================================================
 
     function getInviteUrl(tourney) {
@@ -1097,7 +1101,7 @@
         const url = getInviteUrl(tourney);
         const freeSlots = Math.max(0, 8 - (tourney ? tourney.players.length : 0));
         const orgName = (tourney && tourney.organizer && tourney.organizer.name) ? tourney.organizer.name : 'Arrangören';
-        return `🎾 Hej! ${orgName} bjuder in dig till Pinta Padel Tour: "${tourney ? tourney.name : 'Turnering'}"!\nDet finns 8 platser totalt (${freeSlots} st kvar). Lottning genomförs så fort alla 8 platser är tagna.\n\nKlicka på länken för att anmäla dig med Google eller E-post:\n${url}`;
+        return `🎾 Hej! ${orgName} bjuder in dig till Pinta Padel Tour: "${tourney ? tourney.name : 'Turnering'}"!\nDet finns 8 platser totalt (${freeSlots} st kvar). Lottning genomförs så fort alla 8 platser är tagna.\n\nKlicka på länken och fyll bara i ditt namn för att ta en plats:\n${url}`;
     }
 
     function shareViaMessenger(tourney) {
@@ -1116,36 +1120,6 @@
             window.open(`https://www.messenger.com/`, '_blank');
             alert('Inbjudningstexten och länken har kopierats till urklipp! Klistra bara in den i din Messenger-chatt eller grupp.');
         }
-    }
-
-    function shareViaGmail(tourney, sendToAllPlayers = false) {
-        if (!tourney) return;
-        const text = getInviteMessageText(tourney);
-        const subject = `Inbjudan: Pinta Padel Tour – ${tourney ? tourney.name : ''}`;
-        let bcc = '';
-        if (sendToAllPlayers && tourney && tourney.players) {
-            bcc = tourney.players
-                .map(p => (typeof p === 'string' ? '' : (p.email || '')))
-                .filter(Boolean)
-                .join(',');
-        }
-        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1${bcc ? '&bcc=' + encodeURIComponent(bcc) : ''}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
-        window.open(gmailUrl, '_blank');
-    }
-
-    function shareViaEmail(tourney, sendToAllPlayers = false) {
-        if (!tourney) return;
-        const text = getInviteMessageText(tourney);
-        const subject = `Inbjudan: Pinta Padel Tour – ${tourney ? tourney.name : ''}`;
-        let bcc = '';
-        if (sendToAllPlayers && tourney && tourney.players) {
-            bcc = tourney.players
-                .map(p => (typeof p === 'string' ? '' : (p.email || '')))
-                .filter(Boolean)
-                .join(',');
-        }
-        const mailtoUrl = `mailto:?${bcc ? 'bcc=' + encodeURIComponent(bcc) + '&' : ''}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
-        window.location.href = mailtoUrl;
     }
 
     function shareViaWhatsApp(tourney) {
@@ -1362,7 +1336,7 @@
         const drawDesc = document.getElementById('drawActionDesc');
 
         if (playerCount < 8) {
-            statusText.textContent = `${8 - playerCount} lediga platser. Skicka inbjudan via Messenger eller E-post.`;
+            statusText.textContent = `${8 - playerCount} lediga platser. Bjud in vänner via Messenger, WhatsApp eller direktlänk.`;
             drawBox.classList.add('disabled');
             drawIcon.textContent = '⏳';
             drawTitle.textContent = 'Lottning av Spelordning';
@@ -1405,33 +1379,18 @@
 
             if (player) {
                 const pName = typeof player === 'string' ? player : player.name;
-                const pEmail = typeof player === 'string' ? '' : (player.email || '');
-                const pMethod = typeof player === 'string' ? 'manual' : (player.method || 'email');
-
-                let avatarHtml = `<div class="slot-avatar ${pMethod}">${pName.charAt(0).toUpperCase()}</div>`;
-                if (pMethod === 'google') {
-                    avatarHtml = `
-                        <div class="slot-avatar google" title="Google-konto">
-                            <svg class="google-icon-svg" viewBox="0 0 24 24" style="width: 18px; height: 18px;">
-                                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.15z"/>
-                                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.34 24 12 24z"/>
-                                <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
-                                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
-                            </svg>
-                        </div>
-                    `;
-                }
+                const pPin = typeof player === 'object' && player.pin ? player.pin : '';
+                const avatarLetter = (pName || '?').charAt(0).toUpperCase();
 
                 card.className = 'slot-card occupied';
                 card.innerHTML = `
                     <div class="slot-left">
-                        ${avatarHtml}
+                        <div class="slot-avatar">${escapeHtml(avatarLetter)}</div>
                         <div class="slot-info">
                             <div class="slot-name">${escapeHtml(pName)}</div>
                             <div class="slot-meta">
                                 <span>Plats ${i + 1}</span>
-                                <span class="method-tag ${pMethod}">${pMethod}</span>
-                                ${pEmail ? `<span style="opacity:0.7;">· ${escapeHtml(pEmail)}</span>` : ''}
+                                ${pPin ? `<span class="pin-badge" title="Personlig inloggningskod för ${escapeHtml(pName)}">🔑 Kod: ${escapeHtml(pPin)}</span>` : ''}
                             </div>
                         </div>
                     </div>
@@ -1464,16 +1423,12 @@
                     e.stopPropagation();
                     document.getElementById('manualSlotIndex').value = i;
                     document.getElementById('manualPlayerName').value = '';
-                    document.getElementById('manualPlayerEmail').value = '';
 
                     // Hämta registrerade spelare som INTE redan är med i denna turnering
-                    const currentEmails = (tourney.players || []).map(p => (typeof p === 'string' ? '' : (p.email || '')).toLowerCase());
                     const currentNames = (tourney.players || []).map(p => (typeof p === 'string' ? p : p.name).toLowerCase());
-                    
                     const availableReg = (appState.registeredPlayers || []).filter(rp => {
                         const rName = (rp.name || '').toLowerCase();
-                        const rEmail = (rp.email || '').toLowerCase();
-                        return !currentNames.includes(rName) && (!rEmail || !currentEmails.includes(rEmail));
+                        return !currentNames.includes(rName);
                     });
 
                     const boxExisting = document.getElementById('boxExistingRegisteredPlayers');
@@ -1483,7 +1438,7 @@
                         if (availableReg.length > 0) {
                             boxExisting.style.display = 'block';
                             selectExisting.innerHTML = availableReg.map(p => 
-                                `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.email)})</option>`
+                                `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (Kod: ${escapeHtml(p.pin || '----')})</option>`
                             ).join('');
                         } else {
                             boxExisting.style.display = 'none';
@@ -1499,27 +1454,30 @@
 
         const isUserRegistered = appState.currentUser && tourney.players.some(p => {
             const pName = typeof p === 'string' ? p : p.name;
-            const pEmail = typeof p === 'string' ? '' : (p.email || '');
-            return (pEmail && pEmail === appState.currentUser.email) || pName.toLowerCase() === appState.currentUser.name.toLowerCase();
+            return pName.toLowerCase() === appState.currentUser.name.toLowerCase();
         });
 
         const alreadyNotice = document.getElementById('alreadyRegisteredNotice');
-        const regGrid = document.getElementById('registrationOptionsGrid');
+        const formQuickReg = document.getElementById('formQuickRegisterName');
 
         if (isUserRegistered) {
-            alreadyNotice.style.display = 'block';
-            document.getElementById('alreadyRegisteredDetails').textContent = 
-                `Du är anmäld som ${appState.currentUser.name}. När alla 8 platser fyllts genomförs lottningen!`;
-            regGrid.style.opacity = '0.4';
+            if (alreadyNotice) {
+                alreadyNotice.style.display = 'block';
+                const myPin = appState.currentUser.pin;
+                document.getElementById('alreadyRegisteredDetails').innerHTML = 
+                    `Du är anmäld som <strong>${escapeHtml(appState.currentUser.name)}</strong>${myPin ? ` (Din personliga kod är <span class="pin-badge">🔑 ${escapeHtml(myPin)}</span>)` : ''}. När alla 8 platser fyllts genomförs lottningen!`;
+            }
+            if (formQuickReg) formQuickReg.style.display = 'none';
         } else if (playerCount >= 8) {
-            alreadyNotice.style.display = 'block';
-            document.getElementById('alreadyRegisteredDetails').textContent = 
-                `Turneringen är fulltecknad (8/8 spelare). Du kan följa tabellen och matcherna live!`;
-            regGrid.style.display = 'none';
+            if (alreadyNotice) {
+                alreadyNotice.style.display = 'block';
+                document.getElementById('alreadyRegisteredDetails').textContent = 
+                    `Turneringen är fulltecknad (8/8 spelare). Du kan följa tabellen och matcherna live!`;
+            }
+            if (formQuickReg) formQuickReg.style.display = 'none';
         } else {
-            alreadyNotice.style.display = 'none';
-            regGrid.style.display = 'grid';
-            regGrid.style.opacity = '1';
+            if (alreadyNotice) alreadyNotice.style.display = 'none';
+            if (formQuickReg) formQuickReg.style.display = 'block';
         }
     }
 
@@ -1851,7 +1809,7 @@
                 loggedInBox.style.display = 'block';
                 const roleLabel = (isOrg || appState.currentUser.role === 'admin') ? '👑 Arrangör (Admin)' : '🎾 Spelare';
                 if (loggedInText) loggedInText.textContent = `Inloggad som: ${appState.currentUser.name}`;
-                if (loggedInSub) loggedInSub.textContent = `Roll: ${roleLabel}${appState.currentUser.email ? ' · ' + appState.currentUser.email : ''}`;
+                if (loggedInSub) loggedInSub.textContent = `Roll: ${roleLabel}${appState.currentUser.pin ? ' · Personlig kod: ' + appState.currentUser.pin : ''}`;
             } else {
                 loggedInBox.style.display = 'none';
             }
@@ -2056,14 +2014,10 @@
             } catch (e) {}
 
             const defaultName = (lastOrg && lastOrg.name) || (appState.currentUser && appState.currentUser.name) || '';
-            const defaultEmail = (lastOrg && lastOrg.email) || (appState.currentUser && appState.currentUser.email) || '';
-
             const inputName = document.getElementById('inputOrganizerName');
-            const inputEmail = document.getElementById('inputOrganizerEmail');
             const checkPlays = document.getElementById('checkOrganizerPlays');
 
             if (inputName && defaultName) inputName.value = defaultName;
-            if (inputEmail && defaultEmail) inputEmail.value = defaultEmail;
             if (checkPlays) checkPlays.checked = true;
 
             document.getElementById('inputTourneyName').value = `Pinta Padel Tour – ${new Date().toLocaleDateString('sv-SE')}`;
@@ -2132,10 +2086,9 @@
             const format = document.querySelector('input[name="tourneyFormat"]:checked').value;
             const points = document.getElementById('selectPointSystem').value;
             const orgName = document.getElementById('inputOrganizerName') ? document.getElementById('inputOrganizerName').value.trim() : '';
-            const orgEmail = document.getElementById('inputOrganizerEmail') ? document.getElementById('inputOrganizerEmail').value.trim() : '';
             const orgPlays = document.getElementById('checkOrganizerPlays') ? document.getElementById('checkOrganizerPlays').checked : true;
 
-            const newTourney = createNewTournament(name, format, points, { name: orgName, email: orgEmail }, orgPlays);
+            const newTourney = createNewTournament(name, format, points, { name: orgName }, orgPlays);
             closeModal('modalNewTournament');
             renderApp();
             switchTab('tabLobby');
@@ -2145,53 +2098,40 @@
             }, 300);
         });
 
-        // REGISTRERING 1: GOOGLE
-        document.getElementById('btnRegisterGoogle').addEventListener('click', () => {
-            const tourney = getActiveTournament();
-            if (!tourney) return;
+        // REGISTRERING HELT UTAN MAIL (BARA NAMN -> SLUMPAR 4-SIFFRIG KOD & SPARAS I TELEFONEN)
+        const formQuickRegister = document.getElementById('formQuickRegisterName');
+        if (formQuickRegister) {
+            formQuickRegister.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const nameInput = document.getElementById('quickRegisterNameInput');
+                const name = nameInput ? nameInput.value.trim() : '';
+                const tourney = getActiveTournament();
+                if (tourney && registerPlayer(tourney, { name: name }, true)) {
+                    if (nameInput) nameInput.value = '';
+                }
+            });
+        }
 
-            document.getElementById('googleInputName').value = appState.currentUser ? appState.currentUser.name : '';
-            document.getElementById('googleInputEmail').value = appState.currentUser ? appState.currentUser.email : '';
-            openModal('modalGoogleMock');
-        });
+        // BEKRÄFTELSEMODAL FÖR PIN-KOD (STÄNG KNAPP)
+        const btnPinConfirmDone = document.getElementById('btnPinConfirmDone');
+        if (btnPinConfirmDone) {
+            btnPinConfirmDone.addEventListener('click', () => {
+                closeModal('modalPinConfirmation');
+            });
+        }
 
-        document.getElementById('formGoogleConfirm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const name = document.getElementById('googleInputName').value.trim();
-            const email = document.getElementById('googleInputEmail').value.trim();
-
-            const tourney = getActiveTournament();
-            if (tourney && registerPlayer(tourney, { name: name, email: email, method: 'google' })) {
-                closeModal('modalGoogleMock');
-            }
-        });
-
-        // REGISTRERING 2: E-POST
-        document.getElementById('formRegisterEmail').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const name = document.getElementById('regEmailName').value.trim();
-            const email = document.getElementById('regEmailAddress').value.trim();
-
-            const tourney = getActiveTournament();
-            if (tourney && registerPlayer(tourney, { name: name, email: email, method: 'email' })) {
-                document.getElementById('regEmailName').value = '';
-                document.getElementById('regEmailAddress').value = '';
-            }
-        });
-
-        // REGISTRERING 3: MANUELLT (FÖR ARRANGÖR - OBLIGATORISK REGISTRERING MED NAMN & E-POST)
+        // MANUELL REGISTRERING (FÖR ARRANGÖR ATT TILLDELA PLATS UTAN MAIL)
         document.getElementById('formManualPlayer').addEventListener('submit', (e) => {
             e.preventDefault();
             const name = document.getElementById('manualPlayerName').value.trim();
-            const email = document.getElementById('manualPlayerEmail').value.trim();
 
-            if (!name || !email) {
-                alert('Både namn och e-postadress är obligatoriska för att registrera en spelare.');
+            if (!name) {
+                alert('Vänligen ange spelarens namn.');
                 return;
             }
 
             const tourney = getActiveTournament();
-            if (tourney && registerPlayer(tourney, { name: name, email: email, method: 'manual' })) {
+            if (tourney && registerPlayer(tourney, { name: name }, true)) {
                 closeModal('modalManualPlayer');
             }
         });
@@ -2207,9 +2147,8 @@
                 if (regPlayer && tourney) {
                     if (registerPlayer(tourney, {
                         name: regPlayer.name,
-                        email: regPlayer.email,
-                        method: regPlayer.method || 'registered'
-                    })) {
+                        pin: regPlayer.pin
+                    }, true)) {
                         closeModal('modalManualPlayer');
                     }
                 }
@@ -2233,19 +2172,6 @@
                 orgBox.style.display = isUserOrganizerOf(tourney) ? 'block' : 'none';
             }
 
-            // Visa låda för att maila alla anmälda deltagare om det finns deltagare
-            const boxMailPlayers = document.getElementById('boxMailRegisteredPlayers');
-            const countEl = document.getElementById('countRegisteredEmailRecipients');
-            if (boxMailPlayers && countEl) {
-                const emails = (tourney.players || []).map(p => (typeof p === 'string' ? '' : (p.email || ''))).filter(Boolean);
-                if (emails.length > 0) {
-                    boxMailPlayers.style.display = 'block';
-                    countEl.textContent = emails.length;
-                } else {
-                    boxMailPlayers.style.display = 'none';
-                }
-            }
-
             openModal('modalShare');
         }
 
@@ -2266,32 +2192,6 @@
 
         document.getElementById('btnShareTournament').addEventListener('click', openShareModal);
 
-        // Gmail-knapp
-        const btnModalGmail = document.getElementById('modalBtnGmail');
-        if (btnModalGmail) {
-            btnModalGmail.addEventListener('click', () => {
-                const tourney = getActiveTournament();
-                if (tourney) shareViaGmail(tourney, false);
-            });
-        }
-
-        // Knappar för att maila alla anmälda spelare (BCC)
-        const btnMailPlayersGmail = document.getElementById('btnMailPlayersGmail');
-        if (btnMailPlayersGmail) {
-            btnMailPlayersGmail.addEventListener('click', () => {
-                const tourney = getActiveTournament();
-                if (tourney) shareViaGmail(tourney, true);
-            });
-        }
-
-        const btnMailPlayersDefault = document.getElementById('btnMailPlayersDefault');
-        if (btnMailPlayersDefault) {
-            btnMailPlayersDefault.addEventListener('click', () => {
-                const tourney = getActiveTournament();
-                if (tourney) shareViaEmail(tourney, true);
-            });
-        }
-
         document.getElementById('btnShareMessenger').addEventListener('click', () => {
             const tourney = getActiveTournament();
             if (tourney) shareViaMessenger(tourney);
@@ -2299,15 +2199,6 @@
         document.getElementById('modalBtnMessenger').addEventListener('click', () => {
             const tourney = getActiveTournament();
             if (tourney) shareViaMessenger(tourney);
-        });
-
-        document.getElementById('btnShareEmail').addEventListener('click', () => {
-            const tourney = getActiveTournament();
-            if (tourney) shareViaEmail(tourney, false);
-        });
-        document.getElementById('modalBtnEmail').addEventListener('click', () => {
-            const tourney = getActiveTournament();
-            if (tourney) shareViaEmail(tourney, false);
         });
 
         document.getElementById('btnShareWhatsapp').addEventListener('click', () => {
@@ -2378,7 +2269,6 @@
         const cardRoleAdmin = document.getElementById('cardRoleAdmin');
         const cardRolePlayer = document.getElementById('cardRolePlayer');
         const authRoleSelected = document.getElementById('authRoleSelected');
-        const authEmailGroup = document.getElementById('authEmailGroup');
         const authPinGroup = document.getElementById('authPinGroup');
         const authPlayerQuickSelectGroup = document.getElementById('authPlayerQuickSelectGroup');
         const selectAuthRegisteredPlayer = document.getElementById('selectAuthRegisteredPlayer');
@@ -2387,19 +2277,21 @@
         const btnContinueAsGuest = document.getElementById('btnContinueAsGuest');
         const btnGuestLogin = document.getElementById('btnGuestBannerLogin');
 
+        const authPlayerPinGroup = document.getElementById('authPlayerPinGroup');
+
         function setAuthRole(role) {
             authRoleSelected.value = role;
             if (role === 'admin') {
                 cardRoleAdmin.classList.add('selected');
                 cardRolePlayer.classList.remove('selected');
-                authEmailGroup.style.display = 'none';
+                if (authPlayerPinGroup) authPlayerPinGroup.style.display = 'none';
                 authPinGroup.style.display = 'block';
                 if (authPlayerQuickSelectGroup) authPlayerQuickSelectGroup.style.display = 'none';
                 btnSubmitAuth.textContent = 'Logga in som Arrangör 👔';
             } else {
                 cardRolePlayer.classList.add('selected');
                 cardRoleAdmin.classList.remove('selected');
-                authEmailGroup.style.display = 'block';
+                if (authPlayerPinGroup) authPlayerPinGroup.style.display = 'block';
                 authPinGroup.style.display = 'none';
                 if (authPlayerQuickSelectGroup) authPlayerQuickSelectGroup.style.display = 'block';
                 btnSubmitAuth.textContent = 'Logga in som Spelare 🎾';
@@ -2412,17 +2304,26 @@
         }
 
         function openAuthModalWithRegisteredList() {
-            const currentRole = appState.currentUser ? appState.currentUser.role : 'player';
+            const currentRole = (appState.currentUser && appState.currentUser.role === 'admin') ? 'admin' : 'player';
             setAuthRole(currentRole);
 
             document.getElementById('authUserName').value = appState.currentUser ? appState.currentUser.name : '';
-            document.getElementById('authUserEmail').value = appState.currentUser ? appState.currentUser.email : '';
+            const pinInput = document.getElementById('authPlayerPin');
+            if (pinInput) pinInput.value = (appState.currentUser && appState.currentUser.pin) ? appState.currentUser.pin : '';
 
             // Fyll i registrerade spelare i snabbvalsmenyn för spelar-inloggning
             if (selectAuthRegisteredPlayer) {
-                if (appState.registeredPlayers && appState.registeredPlayers.length > 0) {
-                    selectAuthRegisteredPlayer.innerHTML = '<option value="">-- Välj din profil eller fyll i nedan --</option>' +
-                        appState.registeredPlayers.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.email)})</option>`).join('');
+                const tourney = getActiveTournament();
+                const playersToList = (tourney && tourney.players && tourney.players.length > 0)
+                    ? tourney.players
+                    : (appState.registeredPlayers || []);
+
+                if (playersToList.length > 0) {
+                    selectAuthRegisteredPlayer.innerHTML = '<option value="">-- Välj ditt namn eller fyll i nedan --</option>' +
+                        playersToList.map(p => {
+                            const name = typeof p === 'string' ? p : p.name;
+                            return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
+                        }).join('');
                 } else {
                     selectAuthRegisteredPlayer.innerHTML = '<option value="">-- Inga registrerade spelare ännu --</option>';
                 }
@@ -2435,11 +2336,14 @@
 
         if (selectAuthRegisteredPlayer) {
             selectAuthRegisteredPlayer.addEventListener('change', () => {
-                const selectedId = selectAuthRegisteredPlayer.value;
-                const p = (appState.registeredPlayers || []).find(item => item.id === selectedId);
-                if (p) {
-                    document.getElementById('authUserName').value = p.name;
-                    document.getElementById('authUserEmail').value = p.email;
+                const playerName = selectAuthRegisteredPlayer.value;
+                if (playerName) {
+                    document.getElementById('authUserName').value = playerName;
+                    const pinInput = document.getElementById('authPlayerPin');
+                    if (pinInput) {
+                        pinInput.value = '';
+                        pinInput.focus();
+                    }
                 }
             });
         }
@@ -2475,7 +2379,6 @@
             e.preventDefault();
             const role = authRoleSelected.value;
             const name = document.getElementById('authUserName').value.trim() || (role === 'admin' ? 'Arrangör' : 'Spelare');
-            const email = document.getElementById('authUserEmail').value.trim();
             const adminPin = (document.getElementById('authAdminPin') ? document.getElementById('authAdminPin').value.trim() : '');
 
             const tourney = getActiveTournament();
@@ -2486,11 +2389,8 @@
                 if (tourney) {
                     const cleanPin = adminPin.toUpperCase().replace(/\s+/g, '');
                     const cleanCode = (tourney.adminCode || '').toUpperCase().replace(/\s+/g, '');
-                    const orgEmail = (tourney.organizer && tourney.organizer.email) ? tourney.organizer.email.toLowerCase() : '';
 
                     if (cleanPin && (cleanPin === cleanCode || cleanPin === cleanCode.replace('PT-', ''))) {
-                        isAuthorized = true;
-                    } else if (adminPin && orgEmail && adminPin.toLowerCase() === orgEmail) {
                         isAuthorized = true;
                     } else if (cleanPin && tourney.adminKey && cleanPin === tourney.adminKey.toUpperCase()) {
                         isAuthorized = true;
@@ -2502,7 +2402,7 @@
                 }
 
                 if (!isAuthorized) {
-                    alert(`Ogiltig arrangörskod eller e-post för "${tourney.name}". Ange koden som visades i delningsrutan (t.ex. ${tourney.adminCode || 'PT-xx'}), din arrangörs-e-post, eller öppna din personliga arrangörslänk.`);
+                    alert(`Ogiltig arrangörskod för "${tourney ? tourney.name : 'turneringen'}". Ange arrangörskoden (t.ex. ${tourney ? (tourney.adminCode || 'PT-xx') : 'PT-xx'}) eller öppna din personliga arrangörslänk.`);
                     return;
                 }
 
@@ -2514,33 +2414,43 @@
                 appState.currentUser = {
                     id: (tourney && tourney.organizer && tourney.organizer.id) ? tourney.organizer.id : ('admin_' + Date.now()),
                     name: (tourney && tourney.organizer && tourney.organizer.name) ? tourney.organizer.name : name,
-                    email: (tourney && tourney.organizer && tourney.organizer.email) ? tourney.organizer.email : email,
                     role: 'admin',
                     tourneyKey: tourney ? tourney.adminKey : null
                 };
             } else {
-                appState.currentUser = {
-                    id: appState.currentUser ? appState.currentUser.id : ('user_' + Date.now()),
-                    name: name,
-                    role: 'player',
-                    email: email
-                };
+                // Spelarinloggning: Verifiera med spelarens personliga 4-siffriga PIN-kod
+                const playerPin = (document.getElementById('authPlayerPin') ? document.getElementById('authPlayerPin').value.trim() : '');
 
-                // Om man loggar in som spelare, se till att de finns i spelarregistret
-                if (name) {
-                    if (!appState.registeredPlayers) appState.registeredPlayers = [];
-                    const exists = appState.registeredPlayers.some(rp => rp.name.toLowerCase() === name.toLowerCase());
-                    if (!exists) {
-                        appState.registeredPlayers.push({
-                            id: appState.currentUser.id,
-                            name: name,
-                            email: email,
-                            method: 'manual',
-                            registeredAt: new Date().toISOString()
-                        });
-                        saveRegisteredPlayers();
-                    }
+                // Hitta spelaren i aktiva turneringen eller i spelarregistret
+                let foundPlayer = null;
+                if (tourney && tourney.players) {
+                    foundPlayer = tourney.players.find(p => {
+                        const pName = typeof p === 'string' ? p : p.name;
+                        return pName.toLowerCase() === name.toLowerCase();
+                    });
                 }
+                if (!foundPlayer && appState.registeredPlayers) {
+                    foundPlayer = appState.registeredPlayers.find(p => p.name.toLowerCase() === name.toLowerCase());
+                }
+
+                if (!foundPlayer) {
+                    alert(`Kunde inte hitta någon anmäld spelare med namnet "${name}". Kontrollera stavningen eller fyll i ditt namn i väntrummet.`);
+                    return;
+                }
+
+                const expectedPin = (typeof foundPlayer === 'object' && foundPlayer.pin) ? String(foundPlayer.pin).trim() : '';
+
+                if (expectedPin && playerPin !== expectedPin) {
+                    alert(`Felaktig inloggningskod för "${name}". Ange din 4-siffriga kod.`);
+                    return;
+                }
+
+                appState.currentUser = {
+                    id: (typeof foundPlayer === 'object' && foundPlayer.id) ? foundPlayer.id : ('user_' + Date.now()),
+                    name: (typeof foundPlayer === 'object') ? foundPlayer.name : foundPlayer,
+                    pin: expectedPin,
+                    role: 'player'
+                };
             }
 
             saveUser();
@@ -2559,13 +2469,13 @@
         loadState();
         setupEventListeners();
 
-        // Standard: Game-räkning vid nyskapad standardturnering
+        // Standard: Game-räkning vid nyskapad standardturnering (helt utan mail)
         if (appState.tournaments.length === 0 && appState.deletedTournaments.length === 0) {
             createNewTournament(
                 'Pinta Padel Tour – Sala',
                 'option1',
                 'games',
-                { name: 'Ulrik', email: 'ulrik@pinta.se' },
+                { name: 'Ulrik' },
                 true
             );
         } else {

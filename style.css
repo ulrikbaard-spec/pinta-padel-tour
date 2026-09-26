@@ -1108,71 +1108,61 @@ body {
     margin-bottom: 24px;
 }
 
-.registration-methods-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
+.quick-register-form {
     margin-top: 16px;
 }
 
-@media (max-width: 768px) {
-    .registration-methods-grid {
-        grid-template-columns: 1fr;
+.quick-register-input-wrap {
+    display: flex;
+    gap: 12px;
+}
+
+@media (max-width: 600px) {
+    .quick-register-input-wrap {
+        flex-direction: column;
     }
 }
 
-.reg-method-box {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-}
-
-.reg-method-box h4 {
-    font-size: 16px;
-    font-weight: 800;
-    margin-bottom: 6px;
-    color: var(--text-primary);
-}
-
-.reg-method-box p {
-    font-size: 13px;
+.quick-register-hint {
+    font-size: 13.5px;
     color: var(--text-secondary);
-    margin-bottom: 16px;
+    margin-top: 14px;
+    line-height: 1.5;
 }
 
-/* GOOGLE BUTTON */
-.btn-google {
+.pin-badge {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    gap: 12px;
-    background: #ffffff;
-    color: #3c4043;
-    border: 1px solid #dadce0;
-    border-radius: var(--radius-full);
-    padding: 11px 20px;
-    font-size: 14px;
-    font-weight: 700;
-    cursor: pointer;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-    transition: all 0.2s ease;
-    width: 100%;
+    gap: 4px;
+    background: rgba(0, 230, 118, 0.12);
+    border: 1px solid rgba(0, 230, 118, 0.35);
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 800;
+    font-family: var(--font-mono, monospace);
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    letter-spacing: 0.05em;
 }
 
-.btn-google:hover {
-    background: #f8f9fa;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-    transform: translateY(-1px);
+.pin-display-box {
+    background: var(--bg-card);
+    border: 2px solid var(--primary);
+    border-radius: var(--radius-lg);
+    padding: 22px;
+    margin-bottom: 20px;
+    box-shadow: 0 0 30px rgba(0, 230, 118, 0.22);
 }
 
-.google-icon-svg {
-    width: 20px;
-    height: 20px;
-    flex-shrink: 0;
+.pin-code-digits {
+    font-family: var(--font-mono, monospace);
+    font-size: 46px;
+    font-weight: 900;
+    letter-spacing: 0.28em;
+    color: var(--primary);
+    text-shadow: 0 0 16px rgba(0, 230, 118, 0.45);
+    margin: 8px 0;
+    text-indent: 0.28em; /* centering fix with letter-spacing */
 }
 
 /* INVITATION CHANNELS */

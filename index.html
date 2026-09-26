@@ -71,7 +71,7 @@
                     <span>🎲</span> Lotta spelordning
                 </button>
                 <button class="btn btn-share" id="btnShareTournament" title="Skicka inbjudningslänk till spelarna">
-                    <span>✉️</span> Bjud in (Messenger / Mail)
+                    <span>📢</span> Bjud in spelare (Messenger / WhatsApp / Länk)
                 </button>
                 <button class="btn btn-primary" id="btnNewTournament" title="Skapa en helt ny turnering">
                     <span>➕</span> Ny turnering
@@ -161,14 +161,14 @@
                         </div>
                     </div>
 
-                    <!-- REGISTRERINGSKORT (FÖR SPELARE ATT ANMÄLA SIG) -->
+                    <!-- REGISTRERINGSKORT (FÖR SPELARE ATT ANMÄLA SIG HELT UTAN MAIL) -->
                     <div class="registration-card" id="playerRegistrationCard">
                         <div class="card-header" style="margin-bottom: 8px;">
                             <h3 class="card-title">
                                 <span>🎾</span> Anmäl dig till turneringen
                             </h3>
                             <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">
-                                Välj hur du vill registrera din plats
+                                Fyll bara i ditt namn – ingen e-post behövs!
                             </span>
                         </div>
 
@@ -179,50 +179,24 @@
                             </div>
                         </div>
 
-                        <div class="registration-methods-grid" id="registrationOptionsGrid">
-                            <!-- METOD 1: GOOGLE -->
-                            <div class="reg-method-box">
-                                <div>
-                                    <h4>Snabbast med Google</h4>
-                                    <p>Anmäl dig med ett klick via ditt Google-konto. Ditt namn och profil hämtas automatiskt.</p>
-                                </div>
-                                <button type="button" class="btn-google" id="btnRegisterGoogle">
-                                    <svg class="google-icon-svg" viewBox="0 0 24 24">
-                                        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.15z"/>
-                                        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.34 24 12 24z"/>
-                                        <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
-                                        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
-                                    </svg>
-                                    <span>Fortsätt med Google</span>
+                        <form id="formQuickRegisterName" class="quick-register-form">
+                            <div class="quick-register-input-wrap">
+                                <input type="text" id="quickRegisterNameInput" class="form-control form-control-lg" placeholder="Ditt för- och efternamn (t.ex. Johan Bergman)" required autocomplete="name">
+                                <button type="submit" class="btn btn-primary btn-lg" id="btnQuickRegister" style="white-space: nowrap; padding: 12px 24px;">
+                                    <span>🎾</span> Ta en plats!
                                 </button>
                             </div>
-
-                            <!-- METOD 2: E-POST -->
-                            <div class="reg-method-box">
-                                <div>
-                                    <h4>Anmäl med E-post</h4>
-                                    <p>Fyll i ditt namn och din e-postadress för att knipa en ledig plats.</p>
-                                </div>
-                                <form id="formRegisterEmail">
-                                    <div class="form-group" style="margin-bottom: 10px;">
-                                        <input type="text" id="regEmailName" class="form-control" placeholder="För- och efternamn" required>
-                                    </div>
-                                    <div class="form-group" style="margin-bottom: 14px;">
-                                        <input type="email" id="regEmailAddress" class="form-control" placeholder="din.epost@example.com" required>
-                                    </div>
-                                    <button type="submit" class="btn btn-primary" style="width: 100%;">
-                                        Anmäl mig 🎾
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
+                            <p class="quick-register-hint">
+                                💡 <strong>100% utan mail:</strong> Fyll i ditt namn för att ta en plats. Appen slumpar en 4-siffrig personlig inloggningskod (t.ex. 4218) som visas direkt på skärmen och sparas automatiskt i din telefon så att du är inloggad direkt.
+                            </p>
+                        </form>
                     </div>
 
                     <!-- INBJUDNINGSPANEL MED FLERA KANALER -->
                     <div class="card">
                         <div class="card-header">
                             <h3 class="card-title">
-                                <span>✉️</span> Bjud in spelare till turneringen
+                                <span>📢</span> Bjud in spelare till turneringen
                             </h3>
                             <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">
                                 Skicka direkt till vänner eller i Messenger-gruppchatten
@@ -230,15 +204,12 @@
                         </div>
 
                         <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 14px;">
-                            Skicka inbjudningslänken till dina padelvänner. När de klickar på länken kan de registrera sig med Google eller E-post. När alla 8 är på plats trycker du på <strong>Lotta spelordning</strong>!
+                            Skicka inbjudningslänken till dina padelvänner. När de klickar på länken fyller de bara i sitt namn för att ta en plats. När alla 8 är på plats trycker du på <strong>Lotta spelordning</strong>!
                         </p>
 
                         <div class="channels-row">
                             <button type="button" class="btn btn-messenger" id="btnShareMessenger">
                                 <span>💬</span> Skicka i Messenger
-                            </button>
-                            <button type="button" class="btn btn-email-share" id="btnShareEmail">
-                                <span>✉️</span> Skicka via E-post
                             </button>
                             <button type="button" class="btn btn-whatsapp" id="btnShareWhatsapp">
                                 <span>📱</span> WhatsApp
@@ -411,7 +382,7 @@
                 <div style="font-size: 54px; margin-bottom: 16px;">🎾</div>
                 <h2 style="font-size: 24px; font-weight: 800; margin-bottom: 8px;">Välkommen till Pinta Padel Tour</h2>
                 <p style="color: var(--text-secondary); max-width: 480px; margin: 0 auto 24px;">
-                    Skapa en ny turnering för att komma igång. Turneringen skapas tom och du får direkt en länk att skicka på Messenger eller Mail till 8 deltagare!
+                    Skapa en ny turnering för att komma igång. Turneringen skapas tom och du får direkt en länk att skicka på Messenger eller WhatsApp till dina vänner!
                 </p>
                 <button class="btn btn-primary" id="btnEmptyCreate">
                     <span>➕</span> Skapa Pinta Padel Tour-turnering
@@ -479,15 +450,9 @@
                     <div style="font-weight: 800; color: var(--primary); font-size: 13.5px; margin-bottom: 8px;">
                         👑 Vem är arrangör för turneringen?
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                        <div>
-                            <label class="form-label" for="inputOrganizerName" style="font-size: 12px;">Ditt Namn <span style="color:var(--danger)">*</span></label>
-                            <input type="text" id="inputOrganizerName" class="form-control" placeholder="T.ex. Ulrik" required>
-                        </div>
-                        <div>
-                            <label class="form-label" for="inputOrganizerEmail" style="font-size: 12px;">Din E-postadress <span style="color:var(--danger)">*</span></label>
-                            <input type="email" id="inputOrganizerEmail" class="form-control" placeholder="ulrik@example.com" required>
-                        </div>
+                    <div>
+                        <label class="form-label" for="inputOrganizerName" style="font-size: 12px;">Ditt Namn <span style="color:var(--danger)">*</span></label>
+                        <input type="text" id="inputOrganizerName" class="form-control" placeholder="T.ex. Ulrik" required>
                     </div>
                     
                     <label style="display: flex; align-items: center; gap: 10px; margin-top: 12px; cursor: pointer; user-select: none;">
@@ -504,7 +469,7 @@
                         ℹ️ Automatisk arrangörsbehörighet på denna enhet
                     </div>
                     <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.4;">
-                        Du blir automatiskt stämplad som turneringens arrangör på denna webbläsare. Du får en inbjudningslänk att skicka till dina vänner på Messenger/Mail, samt en personlig arrangörslänk om du vill styra från en iPad eller dator!
+                        Du blir automatiskt stämplad som turneringens arrangör på denna webbläsare. Du får en inbjudningslänk att skicka till dina vänner på Messenger/WhatsApp, samt en personlig arrangörslänk om du vill styra från en iPad eller dator!
                     </div>
                 </div>
 
@@ -580,47 +545,22 @@
     <div class="modal-backdrop" id="modalShare" role="dialog" aria-modal="true" aria-labelledby="modalShareTitle">
         <div class="modal-box">
             <div class="modal-header">
-                <h3 class="modal-title" id="modalShareTitle">✉️ Bjud in till Pinta Padel Tour</h3>
+                <h3 class="modal-title" id="modalShareTitle">📢 Bjud in till Pinta Padel Tour</h3>
                 <button type="button" class="modal-close" aria-label="Stäng modal">&times;</button>
             </div>
 
             <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 16px;">
-                Välj hur du vill skicka inbjudan till dina 8 spelare. De klickar på länken och anmäler sig med Google eller E-post.
+                Välj hur du vill skicka inbjudan till dina 8 spelare. De klickar på länken och fyller bara i sitt namn för att ta en plats.
             </p>
 
             <!-- Snabbknappar för direktutskick -->
             <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
-                <button type="button" class="btn" id="modalBtnGmail" style="width: 100%; background: #ea4335; color: #fff; font-weight: 700; border: none; padding: 12px 18px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer;">
-                    <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: currentColor;"><path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z"/></svg>
-                    Öppna direkt i Gmail (webb)
-                </button>
                 <button type="button" class="btn btn-messenger" id="modalBtnMessenger" style="width: 100%;">
                     <span>💬</span> Skicka inbjudan i Messenger
                 </button>
                 <button type="button" class="btn btn-whatsapp" id="modalBtnWhatsapp" style="width: 100%;">
                     <span>📱</span> Skicka i WhatsApp
                 </button>
-                <button type="button" class="btn btn-email-share" id="modalBtnEmail" style="width: 100%;">
-                    <span>✉️</span> Skicka via Mailprogram (Outlook/Apple)
-                </button>
-            </div>
-
-            <!-- Maila anmälda spelare (om spelare redan finns i turneringen) -->
-            <div id="boxMailRegisteredPlayers" style="display: none; padding: 12px 14px; background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.3); border-radius: var(--radius-md); margin-bottom: 20px;">
-                <div style="font-size: 13px; font-weight: 800; color: var(--accent-blue); margin-bottom: 4px;">
-                    ✉️ Maila alla anmälda deltagare (<span id="countRegisteredEmailRecipients">0</span> st)
-                </div>
-                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">
-                    Skicka spelschemat eller info inför matcherna. Adresserna läggs automatiskt in i Dold kopia (BCC).
-                </p>
-                <div style="display: flex; gap: 8px;">
-                    <button type="button" class="btn btn-sm" id="btnMailPlayersGmail" style="flex: 1; background: #ea4335; color: #fff; font-weight: 700; border: none; padding: 8px 12px; border-radius: var(--radius-sm); cursor: pointer;">
-                        Öppna i Gmail
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" id="btnMailPlayersDefault" style="flex: 1;">
-                        Öppna i Mailapp
-                    </button>
-                </div>
             </div>
 
             <div class="form-group">
@@ -658,22 +598,22 @@
     </div>
 
     <!-- =========================================================================
-         MODAL 4: REGISTRERA ELLER TILLDELA SPELARE (OBLIGATORISK REGISTRERING)
+         MODAL 4: REGISTRERA ELLER TILLDELA SPELARE (HELT UTAN MAIL)
          ========================================================================= -->
     <div class="modal-backdrop" id="modalManualPlayer" role="dialog" aria-modal="true" aria-labelledby="manualPlayerTitle">
         <div class="modal-box">
             <div class="modal-header">
-                <h3 class="modal-title" id="manualPlayerTitle">🎾 Registrera Spelare till Turneringen</h3>
+                <h3 class="modal-title" id="manualPlayerTitle">🎾 Lägg till Spelare</h3>
                 <button type="button" class="modal-close" aria-label="Stäng modal">&times;</button>
             </div>
 
             <p style="font-size: 13.5px; color: var(--text-secondary); margin-bottom: 16px;">
-                Alla deltagare måste vara registrerade med namn och e-post innan de kan läggas in i turneringen.
+                Fyll i spelarens namn för att tilldela platsen. Appen skapar automatiskt en personlig 4-siffrig kod.
             </p>
 
             <!-- Om det finns tidigare registrerade spelare i systemet som inte är i denna turnering -->
             <div id="boxExistingRegisteredPlayers" style="display: none; padding: 14px; background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.25); border-radius: var(--radius-md); margin-bottom: 18px;">
-                <label class="form-label" for="selectExistingPlayer" style="color: var(--accent-blue);">Välj bland redan registrerade spelare:</label>
+                <label class="form-label" for="selectExistingPlayer" style="color: var(--accent-blue);">Välj bland tidigare spelare:</label>
                 <div style="display: flex; gap: 8px; margin-top: 6px;">
                     <select id="selectExistingPlayer" class="form-control form-select">
                         <!-- fylls dynamiskt från appState.registeredPlayers -->
@@ -683,7 +623,7 @@
                     </button>
                 </div>
                 <div style="text-align: center; margin: 12px 0 2px; font-size: 11.5px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">
-                    — ELLER REGISTRERA EN NY SPELARE NEDAN —
+                    — ELLER LÄGG TILL NYTT NAMN NEDAN —
                 </div>
             </div>
 
@@ -691,66 +631,59 @@
                 <input type="hidden" id="manualSlotIndex" value="">
 
                 <div class="form-group">
-                    <label class="form-label" for="manualPlayerName">Spelarens Fullständiga Namn <span style="color: var(--danger);">*</span></label>
+                    <label class="form-label" for="manualPlayerName">Spelarens Namn <span style="color: var(--danger);">*</span></label>
                     <input type="text" id="manualPlayerName" class="form-control" placeholder="T.ex. Johan Bergman" required>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label" for="manualPlayerEmail">E-postadress (för inloggning &amp; resultat) <span style="color: var(--danger);">*</span></label>
-                    <input type="email" id="manualPlayerEmail" class="form-control" placeholder="johan.bergman@example.com" required>
                     <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 4px;">
-                        Spelaren registreras i Pinta Padel Tour och kan därefter logga in för att rapportera sina matchresultat.
+                        Ingen e-post behövs. Spelaren tilldelas en personlig 4-siffrig kod direkt.
                     </span>
                 </div>
 
                 <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
                     <button type="button" class="btn btn-secondary btn-modal-cancel">Avbryt</button>
-                    <button type="submit" class="btn btn-primary">Registrera &amp; Lägg till 🎾</button>
+                    <button type="submit" class="btn btn-primary">Lägg till &amp; Slumpa kod 🎾</button>
                 </div>
             </form>
         </div>
     </div>
 
     <!-- =========================================================================
-         MODAL 5: GOOGLE REGISTRERING DIALOG
+         MODAL 5: BEKRÄFTELSE & PERSONLIG PIN-KOD (VISAS DIREKT & SPARAS AUTOMATISKT)
          ========================================================================= -->
-    <div class="modal-backdrop" id="modalGoogleMock" role="dialog" aria-modal="true" aria-labelledby="googleModalTitle">
-        <div class="modal-box" style="max-width: 440px;">
-            <div class="modal-header">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <svg class="google-icon-svg" viewBox="0 0 24 24" style="width: 24px; height: 24px;">
-                        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.15z"/>
-                        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.34 24 12 24z"/>
-                        <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
-                        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
-                    </svg>
-                    <h3 class="modal-title" id="googleModalTitle" style="font-size: 17px;">Logga in med Google – Pinta Padel Tour</h3>
-                </div>
-                <button type="button" class="modal-close" aria-label="Stäng modal">&times;</button>
-            </div>
-
-            <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 18px;">
-                Bekräfta dina Google-uppgifter för att registrera din plats i turneringen:
+    <div class="modal-backdrop" id="modalPinConfirmation" role="dialog" aria-modal="true" aria-labelledby="pinModalTitle">
+        <div class="modal-box" style="max-width: 460px; text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 8px;">🎾</div>
+            <h3 class="modal-title" id="pinModalTitle" style="font-size: 22px; margin-bottom: 6px;">Du har tagit en plats!</h3>
+            <p style="color: var(--text-secondary); font-size: 14.5px; margin-bottom: 20px;" id="pinModalSubtitle">
+                Välkommen till turneringen, <strong id="pinConfirmPlayerName" style="color: #fff;">Spelare</strong>! Du har <span id="pinConfirmSlotBadge" style="color: var(--primary); font-weight: 800;">Plats 1 av 8</span>.
             </p>
 
-            <form id="formGoogleConfirm">
-                <div class="form-group">
-                    <label class="form-label" for="googleInputName">Namn</label>
-                    <input type="text" id="googleInputName" class="form-control" placeholder="Ditt Google-namn" required>
+            <div class="pin-display-box">
+                <div style="font-size: 12px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px;">
+                    Din personliga inloggningskod
                 </div>
+                <div class="pin-code-digits" id="pinConfirmCodeDisplay">
+                    4218
+                </div>
+                <div style="font-size: 12px; color: var(--text-secondary);">
+                    4-siffrig kod för inloggning
+                </div>
+            </div>
 
-                <div class="form-group">
-                    <label class="form-label" for="googleInputEmail">Google E-post</label>
-                    <input type="email" id="googleInputEmail" class="form-control" placeholder="din.adress@gmail.com" required>
+            <div style="background: rgba(0, 230, 118, 0.08); border: 1px solid rgba(0, 230, 118, 0.25); border-radius: var(--radius-md); padding: 14px; text-align: left; margin-bottom: 22px;">
+                <div style="font-weight: 800; color: var(--primary); font-size: 13.5px; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span>✅</span> Sparad automatiskt i din telefon!
                 </div>
+                <p style="font-size: 12.5px; color: var(--text-secondary); margin: 0; line-height: 1.45;">
+                    Du är redan inloggad på denna telefon. Du kan direkt se spelschema och rapportera dina matchresultat när lottningen är klar.
+                </p>
+                <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 8px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 6px;">
+                    💡 <em>Om du byter telefon eller använder en annan webbläsare anger du ditt namn och denna kod för att logga in.</em>
+                </div>
+            </div>
 
-                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
-                    <button type="button" class="btn btn-secondary btn-modal-cancel">Avbryt</button>
-                    <button type="submit" class="btn btn-google" style="width: auto; padding: 10px 20px;">
-                        Bekräfta &amp; Anmäl plats 🎾
-                    </button>
-                </div>
-            </form>
+            <button type="button" class="btn btn-primary btn-lg" id="btnPinConfirmDone" style="width: 100%;">
+                Toppen, ta mig till turneringen! 🎾
+            </button>
         </div>
     </div>
 
@@ -816,16 +749,19 @@
                     <input type="text" id="authUserName" class="form-control" placeholder="T.ex. Ulrik" required>
                 </div>
 
-                <div class="form-group" id="authEmailGroup" style="display: none;">
-                    <label class="form-label" for="authUserEmail">E-postadress (samma som vid registrering)</label>
-                    <input type="email" id="authUserEmail" class="form-control" placeholder="din.epost@example.com">
+                <div class="form-group" id="authPlayerPinGroup" style="display: none;">
+                    <label class="form-label" for="authPlayerPin">Din 4-siffriga inloggningskod</label>
+                    <input type="text" id="authPlayerPin" class="form-control" placeholder="T.ex. 4218" maxlength="6" inputmode="numeric">
+                    <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 4px;">
+                        Koden du fick när du tog en plats (visas även bredvid ditt namn i väntrummet).
+                    </span>
                 </div>
 
                 <div class="form-group" id="authPinGroup">
-                    <label class="form-label" for="authAdminPin">Arrangörskod eller E-post</label>
-                    <input type="text" id="authAdminPin" class="form-control" placeholder="T.ex. PT-84 eller din arrangörs-e-post">
+                    <label class="form-label" for="authAdminPin">Arrangörskod</label>
+                    <input type="text" id="authAdminPin" class="form-control" placeholder="T.ex. PT-84">
                     <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 4px;">
-                        👑 Skaparen av turneringen är alltid automatiskt arrangör på sin egen enhet. För att styra från en ny enhet, ange arrangörskoden (finns i delningsrutan) eller öppna din personliga arrangörslänk.
+                        👑 Skaparen av turneringen är alltid automatiskt arrangör på sin egen enhet. För att styra från en ny enhet, ange arrangörskoden (t.ex. PT-84) eller öppna din personliga arrangörslänk.
                     </span>
                 </div>
 
