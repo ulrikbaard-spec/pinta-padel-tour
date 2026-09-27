@@ -137,7 +137,10 @@
                     <!-- Bana 1 -->
                     <div class="court-card" id="courtCard1">
                         <div class="court-header">
-                            <span class="court-title">BANA 1</span>
+                            <div class="court-title-wrap">
+                                <span class="court-title">BANA 1</span>
+                                <span class="court-user-tag" id="courtUserTag1" style="display: none;">⭐ DIN MATCH</span>
+                            </div>
                             <span class="court-match-status" id="courtStatus1">Pågående</span>
                         </div>
                         <div class="scoreboard">
@@ -159,15 +162,21 @@
                                 </div>
                             </div>
                         </div>
-                        <button type="button" class="btn btn-sm btn-block btn-save-score" data-court="0">
+                        <button type="button" class="btn btn-sm btn-block btn-save-score" id="btnSaveCourt1" data-court="0">
                             Spara Bana 1
                         </button>
+                        <div class="court-locked-label" id="courtLockedLabel1" style="display: none;">
+                            Endast arrangören eller spelare på Bana 1 kan rapportera
+                        </div>
                     </div>
 
                     <!-- Bana 2 -->
                     <div class="court-card" id="courtCard2">
                         <div class="court-header">
-                            <span class="court-title">BANA 2</span>
+                            <div class="court-title-wrap">
+                                <span class="court-title">BANA 2</span>
+                                <span class="court-user-tag" id="courtUserTag2" style="display: none;">⭐ DIN MATCH</span>
+                            </div>
                             <span class="court-match-status" id="courtStatus2">Pågående</span>
                         </div>
                         <div class="scoreboard">
@@ -189,9 +198,12 @@
                                 </div>
                             </div>
                         </div>
-                        <button type="button" class="btn btn-sm btn-block btn-save-score" data-court="1">
+                        <button type="button" class="btn btn-sm btn-block btn-save-score" id="btnSaveCourt2" data-court="1">
                             Spara Bana 2
                         </button>
+                        <div class="court-locked-label" id="courtLockedLabel2" style="display: none;">
+                            Endast arrangören eller spelare på Bana 2 kan rapportera
+                        </div>
                     </div>
                 </div>
             </section>
@@ -201,7 +213,7 @@
                 <div class="table-card">
                     <div class="table-header-meta">
                         <span class="table-title">Liveresultat</span>
-                        <span class="table-sub" id="tableMetaSub">Sorterat på Poäng → Målskillnad</span>
+                        <span class="table-sub" id="tableMetaSub">Poäng → Målskillnad</span>
                     </div>
 
                     <div class="table-responsive">
@@ -227,20 +239,21 @@
             <section class="app-view" id="viewMenu" style="display: none;">
                 <div class="menu-container">
 
-                    <!-- Sektion: Inloggning & Session -->
+                    <!-- Sektion: Inloggad Användare -->
                     <div class="menu-section">
-                        <span class="menu-section-title">Användare</span>
+                        <span class="menu-section-title">Användarprofil</span>
                         <div class="menu-item-card" id="menuUserCard">
                             <div class="menu-item-content">
                                 <span class="menu-item-icon" id="menuUserIcon">👤</span>
                                 <div>
                                     <strong id="menuUserName">Gästläge</strong>
-                                    <span class="menu-item-sub" id="menuUserRole">Visningsläge – Logga in för att rapportera</span>
+                                    <span class="menu-item-sub" id="menuUserRole">Inte inloggad – Visningsläge</span>
                                 </div>
                             </div>
-                            <button type="button" class="btn btn-secondary btn-sm" id="btnMenuLogin">
-                                Ändra
-                            </button>
+                            <div class="menu-user-actions" id="menuUserActions">
+                                <button type="button" class="btn btn-secondary btn-sm" id="btnMenuLogin">Logga in</button>
+                                <button type="button" class="btn btn-danger-sm btn-sm" id="btnMenuLogout" style="display: none;">Logga ut</button>
+                            </div>
                         </div>
                     </div>
 
@@ -252,7 +265,7 @@
                                 <span class="menu-item-icon">📢</span>
                                 <div>
                                     <strong>Inbjudningslänk</strong>
-                                    <span class="menu-item-sub">Skicka till deltagare så de kan se och rapportera</span>
+                                    <span class="menu-item-sub">Deltagarlänk för vänner (anmälan & live-visning)</span>
                                 </div>
                             </div>
                             <div class="menu-actions-row">
@@ -279,15 +292,29 @@
                         </div>
                     </div>
 
-                    <!-- Sektion: Turnering & Fara -->
-                    <div class="menu-section">
-                        <span class="menu-section-title">Administration</span>
+                    <!-- Sektion: Arrangörskontroll (Visas endast om inloggad som arrangör) -->
+                    <div class="menu-section" id="menuAdminZone" style="display: none;">
+                        <span class="menu-section-title">Arrangörsfunktioner</span>
+                        
+                        <div class="menu-item-card">
+                            <div class="menu-item-content">
+                                <span class="menu-item-icon">🔑</span>
+                                <div>
+                                    <strong>Arrangörskod: <span id="menuAdminCodeText">PT-00</span></strong>
+                                    <span class="menu-item-sub">Kopiera arrangörslänk för att styra från en annan mobil/iPad</span>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btnCopyAdminLink">
+                                Kopiera
+                            </button>
+                        </div>
+
                         <div class="menu-item-card">
                             <div class="menu-item-content">
                                 <span class="menu-item-icon">➕</span>
                                 <div>
-                                    <strong>Ny turnering</strong>
-                                    <span class="menu-item-sub">Skapa en ny tom turnering</span>
+                                    <strong>Skapa ny turnering</strong>
+                                    <span class="menu-item-sub">Starta en ny tom turnering</span>
                                 </div>
                             </div>
                             <button type="button" class="btn btn-secondary btn-sm" id="btnMenuNewTourney">
@@ -299,7 +326,7 @@
                             <div class="menu-item-content">
                                 <span class="menu-item-icon">🗑️</span>
                                 <div>
-                                    <strong style="color: var(--danger);">Radera aktuell turnering</strong>
+                                    <strong style="color: var(--danger);">Radera turneringen</strong>
                                     <span class="menu-item-sub">Flyttas till papperskorgen (kan ångras)</span>
                                 </div>
                             </div>
@@ -414,31 +441,65 @@
                 <span class="pin-display-label">Din personliga PIN-kod:</span>
                 <span class="pin-display-code" id="pinConfirmCode">0000</span>
             </div>
-            <p class="pin-tip">
+            <p class="pin-tip" id="pinConfirmTip">
                 Spara koden för att logga in på din mobil och rapportera matchresultat.
             </p>
             <button type="button" class="btn btn-primary btn-block" id="btnClosePinConfirm">Klar</button>
         </div>
     </div>
 
-    <!-- MODAL: LOGGA IN / BYT ANVÄNDARE -->
+    <!-- MODAL: LOGGA IN (SPELARE ELLER ARRANGÖR) -->
     <div class="modal-overlay" id="modalAuth" style="display: none;">
         <div class="modal-card">
             <div class="modal-header">
                 <h3 class="modal-title">Logga in</h3>
                 <button type="button" class="btn-close-modal" id="btnCloseAuthModal">✕</button>
             </div>
-            <form id="formAuth">
+
+            <!-- Segmentväljare: Spelare vs Arrangör -->
+            <div class="auth-tabs">
+                <button type="button" class="auth-tab-btn active" id="authTabBtnPlayer">🎾 Spelare</button>
+                <button type="button" class="auth-tab-btn" id="authTabBtnAdmin">👑 Arrangör</button>
+            </div>
+
+            <!-- Inloggning som Spelare -->
+            <div id="authSectionPlayer">
                 <div class="form-group">
-                    <label class="form-label" for="authCodeInput">Arrangörskod eller Spelar-PIN</label>
-                    <input type="text" class="form-input text-center" id="authCodeInput" placeholder="T.ex. PT-42 eller 4 siffror" required autocomplete="off">
-                    <span class="form-hint">Arrangörskod (PT-xx) eller din 4-siffriga spelarkod.</span>
+                    <label class="form-label">Välj vem du är i turneringen:</label>
+                    <div class="player-select-grid" id="authPlayerGrid">
+                        <!-- Fylls i app.js -->
+                    </div>
                 </div>
-                <div class="modal-actions">
-                    <button type="submit" class="btn btn-primary btn-block">Logga in</button>
-                    <button type="button" class="btn btn-secondary btn-block" id="btnAuthLogout" style="display: none;">Logga ut (Gästläge)</button>
+
+                <div class="form-group" id="authPlayerPinGroup" style="display: none;">
+                    <label class="form-label" for="authPlayerPinInput">
+                        Ange din 4-siffriga PIN för <strong id="authSelectedPlayerName">Spelare</strong>:
+                    </label>
+                    <input type="password" inputmode="numeric" maxlength="4" class="form-input text-center" id="authPlayerPinInput" placeholder="4 siffror" autocomplete="off">
+                    <button type="button" class="btn btn-primary btn-block" style="margin-top: 10px;" id="btnSubmitPlayerLogin">
+                        Logga in som spelare
+                    </button>
                 </div>
-            </form>
+            </div>
+
+            <!-- Inloggning som Arrangör -->
+            <div id="authSectionAdmin" style="display: none;">
+                <form id="formAdminAuth">
+                    <div class="form-group">
+                        <label class="form-label" for="authAdminCodeInput">Arrangörskod eller namn</label>
+                        <input type="text" class="form-input text-center" id="authAdminCodeInput" placeholder="T.ex. PT-42 eller Ulrik" required autocomplete="off">
+                        <span class="form-hint">Ange arrangörskoden (PT-xx) som skapades med turneringen.</span>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Logga in som arrangör</button>
+                </form>
+            </div>
+
+            <!-- Logga ut knapp om någon är inloggad -->
+            <div class="auth-modal-footer" id="authModalLogoutWrap" style="display: none;">
+                <button type="button" class="btn btn-danger-sm btn-block" id="btnModalLogout">
+                    Logga ut (Gå till gästläge)
+                </button>
+            </div>
         </div>
     </div>
 

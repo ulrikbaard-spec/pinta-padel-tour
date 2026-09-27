@@ -1296,3 +1296,137 @@ html, body {
     cursor: pointer;
     flex-shrink: 0;
 }
+
+/* ==========================================================================
+   12. ANVÄNDARROLLER & MATCH-ÄGARSKAP
+   ========================================================================== */
+
+.court-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.court-user-tag {
+    background: rgba(0, 230, 118, 0.15);
+    border: 1px solid rgba(0, 230, 118, 0.4);
+    color: var(--primary);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    padding: 2px 7px;
+    border-radius: var(--radius-full);
+}
+
+.court-locked-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    margin-top: 8px;
+    padding: 6px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: var(--radius-sm);
+}
+
+.court-card.is-my-match {
+    border-color: rgba(0, 230, 118, 0.4);
+    box-shadow: 0 4px 20px rgba(0, 230, 118, 0.12);
+}
+
+.court-card.is-other-match {
+    opacity: 0.85;
+}
+
+.roster-slot-row.is-current-user {
+    background: rgba(0, 230, 118, 0.05);
+    border-left: 3px solid var(--primary);
+}
+
+.badge-you {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--primary);
+    background: var(--primary-soft);
+    padding: 2px 7px;
+    border-radius: var(--radius-full);
+    border: 1px solid rgba(0, 230, 118, 0.25);
+}
+
+.leaderboard-table tr.row-current-user td {
+    background: rgba(0, 230, 118, 0.08);
+    font-weight: 800;
+}
+
+.leaderboard-table tr.row-current-user td:first-child {
+    border-left: 3px solid var(--primary);
+}
+
+.menu-user-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* Inloggningsmodal segment-tabs */
+.auth-tabs {
+    display: flex;
+    gap: 6px;
+    background: var(--bg-input);
+    padding: 4px;
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+    border: 1px solid var(--border-subtle);
+}
+
+.auth-tab-btn {
+    flex: 1;
+    height: 36px;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.auth-tab-btn.active {
+    background: var(--bg-elevated);
+    color: var(--primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.player-select-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.player-select-btn {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    padding: 10px 8px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.player-select-btn:hover, .player-select-btn.selected {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+    color: var(--primary);
+}
+
+.auth-modal-footer {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-subtle);
+}

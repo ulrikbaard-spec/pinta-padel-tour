@@ -1,7 +1,7 @@
 /**
  * PINTA PADEL TOUR – HUVUDMOTOR
  * Minimalistisk, serverlös padelturnering för 8 spelare på 2 banor.
- * Byggd enligt direktiven i skill:en frontend-design.
+ * Robust användarhantering: Arrangör (Admin), Spelare (med matchfokus) och Gästläge.
  */
 
 (function () {
@@ -14,6 +14,7 @@
     const STORAGE_KEY = 'pinta_padel_data_v2';
     const AUTH_KEY = 'pinta_padel_user_v2';
     const ADMIN_KEYS_KEY = 'pinta_padel_adminkeys_v2';
+    const LOGOUT_FLAG_KEY = 'pinta_explicit_logout_v2';
 
     const appState = {
         tournaments: [],
@@ -28,6 +29,7 @@
     let broadcastChannel = null;
     let undoToastTimer = null;
     let audioCtx = null;
+    let selectedPlayerForLogin = null;
 
     // Standard balanserad Americano-matris för 8 spelare (7 omgångar)
     // Varje spelare spelar med alla andra 7 exakt en gång och möter alla två gånger.
@@ -111,6 +113,7 @@
             console.error('Kunde inte läsa state:', e);
         }
 
+        // Läs inloggad användare
         try {
             const userRaw = localStorage.getItem(AUTH_KEY);
             if (userRaw) {
@@ -122,9 +125,12 @@
             appState.currentUser = null;
         }
 
-        // Om skaparen besöker sin egen turnering och adminKey stämmer -> arrangör
+        // Kontrollera om användaren uttryckligen har loggat ut
+        const isExplicitlyLoggedOut = sessionStorage.getItem(LOGOUT_FLAG_KEY) === 'true';
+
+        // Om skaparen besöker sin egen turnering på denna enhet och INTE uttryckligen loggat ut:
         const active = getActiveTournament();
-        if (active && !appState.currentUser) {
+        if (active && !appState.currentUser && !isExplicitlyLoggedOut) {
             const adminKeys = getAdminKeys();
             if (active.adminKey && adminKeys[active.id] === active.adminKey) {
                 appState.currentUser = {
@@ -158,10 +164,29 @@
         try {
             if (appState.currentUser) {
                 localStorage.setItem(AUTH_KEY, JSON.stringify(appState.currentUser));
+                sessionStorage.removeItem(LOGOUT_FLAG_KEY);
             } else {
                 localStorage.removeItem(AUTH_KEY);
             }
         } catch (e) {}
+    }
+
+    function logoutUser() {
+        appState.currentUser = null;
+        saveUser();
+        sessionStorage.setItem(LOGOUT_FLAG_KEY, 'true');
+
+        // Rensa eventuella admin-parametrar i URL så man inte återinloggas vid sidomladdning
+        try {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('key');
+            url.searchParams.delete('admin');
+            history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));
+        } catch (e) {}
+
+        renderApp();
+        playClick();
+        showToast('👤 Du är nu utloggad (Gästläge).');
     }
 
     function getAdminKeys() {
@@ -286,25 +311,8 @@
         const urlParams = new URLSearchParams(window.location.search);
         const tourneyId = urlParams.get('t') || urlParams.get('id');
         const adminKeyParam = urlParams.get('key') || urlParams.get('admin');
-        const hash = window.location.hash;
 
-        if (hash && hash.startsWith('#data=')) {
-            try {
-                const encoded = hash.replace('#data=', '');
-                const decompressed = decodeURIComponent(atob(encoded));
-                const imported = JSON.parse(decompressed);
-                if (imported && imported.id) {
-                    const idx = appState.tournaments.findIndex(t => t.id === imported.id);
-                    if (idx >= 0) {
-                        appState.tournaments[idx] = imported;
-                    } else {
-                        appState.tournaments.push(imported);
-                    }
-                    appState.activeTournamentId = imported.id;
-                    saveState();
-                }
-            } catch (e) {}
-        } else if (tourneyId) {
+        if (tourneyId) {
             let found = appState.tournaments.find(t => t.id === tourneyId);
             if (!found) {
                 const tourneyName = urlParams.get('n') || urlParams.get('namn') || 'Pinta Padel Tour';
@@ -327,7 +335,9 @@
         }
 
         const active = getActiveTournament();
-        if (adminKeyParam && active) {
+        const isExplicitlyLoggedOut = sessionStorage.getItem(LOGOUT_FLAG_KEY) === 'true';
+
+        if (adminKeyParam && active && !isExplicitlyLoggedOut) {
             if (adminKeyParam.toLowerCase() === 'ulrik' || (active.adminKey && active.adminKey === adminKeyParam)) {
                 active.adminKey = adminKeyParam;
                 saveAdminKeyForTourney(active.id, adminKeyParam);
@@ -343,29 +353,63 @@
         }
     }
 
-    function getShareableUrl(tourney) {
+    function getShareableUrl(tourney, forAdmin = false) {
         if (!tourney) return window.location.origin + window.location.pathname;
         const base = window.location.origin + window.location.pathname;
         const cleanName = encodeURIComponent(tourney.name || 'Padel');
+        if (forAdmin && tourney.adminKey) {
+            return `${base}?t=${tourney.id}&n=${cleanName}&key=${tourney.adminKey}`;
+        }
         return `${base}?t=${tourney.id}&n=${cleanName}`;
     }
 
     // =========================================================================
-    // 6. TURNERINGSHANTERING (SKAPA, LOTTA, RADERA)
+    // 6. ANVÄNDARROLLER & BEHÖRIGHETER
     // =========================================================================
 
     function getActiveTournament() {
         return appState.tournaments.find(t => t.id === appState.activeTournamentId) || null;
     }
 
-    function isUserOrganizerOf(tourney) {
-        if (!tourney) return false;
+    function isOrganizer() {
         if (!appState.currentUser) return false;
-        if (appState.currentUser.role === 'admin') return true;
-        const keys = getAdminKeys();
-        if (tourney.adminKey && keys[tourney.id] === tourney.adminKey) return true;
+        return appState.currentUser.role === 'admin';
+    }
+
+    function isPlayer() {
+        if (!appState.currentUser) return false;
+        return appState.currentUser.role === 'player';
+    }
+
+    function isGuest() {
+        return !appState.currentUser;
+    }
+
+    function isCurrentUserInMatch(match) {
+        if (!appState.currentUser) return false;
+        const userId = appState.currentUser.id;
+        const userName = (appState.currentUser.name || '').toLowerCase();
+
+        const inTeam1 = (match.team1 || []).some(p => p.id === userId || (p.name && p.name.toLowerCase() === userName));
+        const inTeam2 = (match.team2 || []).some(p => p.id === userId || (p.name && p.name.toLowerCase() === userName));
+
+        return inTeam1 || inTeam2;
+    }
+
+    function canUserEditMatch(match) {
+        // Arrangören har full behörighet att redigera alla matcher
+        if (isOrganizer()) return true;
+
+        // En spelare kan enbart mata in / spara resultatet i matchen de själva deltar i!
+        if (isPlayer() && isCurrentUserInMatch(match)) return true;
+
+        // Gäster och spelare på den andra banan kan inte redigera
         return false;
     }
+
+    // =========================================================================
+    // 7. TURNERINGSHANTERING (SKAPA, LOTTA, RADERA)
+    // =========================================================================
 
     function createNewTournament(name, organizerName, organizerPlays = true, format = 'option1', pointSystem = 'games') {
         const id = 'pt_' + Date.now();
@@ -391,11 +435,11 @@
             rounds: []
         };
 
-        // Om arrangören spelar själv -> sätts direkt på Plats 1 med egen PIN-kod
+        // Om arrangören spelar själv -> sätts på Plats 1 med egen PIN
         if (organizerPlays) {
             const orgPin = Math.floor(1000 + Math.random() * 9000).toString();
             newTourney.players.push({
-                id: 'p_1_' + Date.now(),
+                id: 'p_org_' + id,
                 name: orgCleanName,
                 pin: orgPin,
                 isOrganizer: true
@@ -406,7 +450,7 @@
         appState.tournaments.unshift(newTourney);
         appState.activeTournamentId = id;
 
-        // Skaparen är alltid inloggad som arrangör på denna enhet
+        // Skaparen blir inloggad som arrangör
         appState.currentUser = {
             id: 'org_' + id,
             name: orgCleanName,
@@ -420,6 +464,7 @@
         renderApp();
         switchView('viewPlayers');
         playSuccess();
+        showToast(`🎾 Turneringen "${newTourney.name}" skapades! Du är inloggad som arrangör.`);
     }
 
     function registerPlayer(tourney, name, slotIndex) {
@@ -442,9 +487,10 @@
 
         tourney.players.push(newPlayer);
 
-        // Om arrangören lägger till en spelare -> ARRANGÖREN FÖRMÅR VARA ARRANGÖR!
-        const isOrg = appState.currentUser && appState.currentUser.role === 'admin';
-        if (!isOrg) {
+        const wasOrganizer = isOrganizer();
+
+        // Om en gäst registrerar sig -> logga in direkt som denna spelare!
+        if (!wasOrganizer) {
             appState.currentUser = {
                 id: newPlayer.id,
                 name: newPlayer.name,
@@ -457,28 +503,52 @@
         saveState();
         renderApp();
 
-        // Visa PIN-bekräftelse
-        showPinConfirmModal(newPlayer.name, newPlayer.pin);
+        // Visa PIN-bekräftelse med anpassat budskap
+        const modalTitle = document.getElementById('pinConfirmTitle');
+        const modalDesc = document.getElementById('pinConfirmDesc');
+        const modalTip = document.getElementById('pinConfirmTip');
+
+        if (wasOrganizer) {
+            if (modalTitle) modalTitle.textContent = 'Spelare tillagd!';
+            if (modalDesc) modalDesc.innerHTML = `<strong>${escapeHtml(newPlayer.name)}</strong> har tilldelats Plats ${tourney.players.length} av 8.`;
+            if (modalTip) modalTip.textContent = `Ge koden ${newPlayer.pin} till spelaren så kan de logga in på sin egen mobil. Du förblir inloggad som arrangör.`;
+        } else {
+            if (modalTitle) modalTitle.textContent = 'Plats bokad!';
+            if (modalDesc) modalDesc.innerHTML = `Välkommen till turneringen, <strong>${escapeHtml(newPlayer.name)}</strong>! Du har Plats ${tourney.players.length} av 8.`;
+            if (modalTip) modalTip.textContent = 'Spara din 4-siffriga kod för att logga in och rapportera dina matcher.';
+        }
+
+        document.getElementById('pinConfirmName').textContent = newPlayer.name;
+        document.getElementById('pinConfirmCode').textContent = newPlayer.pin;
+        openModal('modalPinConfirm');
+
         playSuccess();
         return true;
     }
 
     function removePlayer(tourney, playerIndex) {
         if (!tourney || tourney.isDrawn) return;
-        if (!isUserOrganizerOf(tourney)) {
+        if (!isOrganizer()) {
             alert('Endast turneringens arrangör kan ta bort anmälda spelare.');
             return;
         }
-        if (confirm(`Ta bort ${tourney.players[playerIndex].name}?`)) {
+
+        const player = tourney.players[playerIndex];
+        if (confirm(`Vill du ta bort "${player.name}" från turneringen?`)) {
+            // Om den borttagna spelaren var inloggad på denna enhet -> logga ut
+            if (appState.currentUser && appState.currentUser.id === player.id) {
+                logoutUser();
+            }
             tourney.players.splice(playerIndex, 1);
             saveState();
             renderApp();
             playClick();
+            showToast(`"${player.name}" togs bort.`);
         }
     }
 
     /**
-     * Lottning av spelschemat för 8 spelare (7 omgångar)
+     * Lottning av spelschema (8 spelare, 7 omgångar)
      */
     function drawSchedule(tourney) {
         if (!tourney || tourney.isDrawn) return;
@@ -486,14 +556,14 @@
             alert('Alla 8 platser måste vara fyllda innan lottning kan genomföras.');
             return;
         }
-        if (!isUserOrganizerOf(tourney)) {
+        if (!isOrganizer()) {
             alert('Endast arrangören kan genomföra lottningen.');
             return;
         }
 
-        // Slumpa spelarnas ordning 1..8 för rättvis lottning
-        const shuffledPlayers = [...tourney.players].sort(() => Math.random() - 0.5);
-        tourney.players = shuffledPlayers;
+        // Slumpa spelarnas ordning 1..8
+        const shuffled = [...tourney.players].sort(() => Math.random() - 0.5);
+        tourney.players = shuffled;
 
         const rounds = [];
         SCHEDULE_MATRIX.forEach((roundData, rIndex) => {
@@ -505,16 +575,16 @@
                 matches: [
                     {
                         court: 1,
-                        team1: [shuffledPlayers[court1Pairs[0][0]], shuffledPlayers[court1Pairs[0][1]]],
-                        team2: [shuffledPlayers[court1Pairs[1][0]], shuffledPlayers[court1Pairs[1][1]]],
+                        team1: [shuffled[court1Pairs[0][0]], shuffled[court1Pairs[0][1]]],
+                        team2: [shuffled[court1Pairs[1][0]], shuffled[court1Pairs[1][1]]],
                         score1: 0,
                         score2: 0,
                         completed: false
                     },
                     {
                         court: 2,
-                        team1: [shuffledPlayers[court2Pairs[0][0]], shuffledPlayers[court2Pairs[0][1]]],
-                        team2: [shuffledPlayers[court2Pairs[1][0]], shuffledPlayers[court2Pairs[1][1]]],
+                        team1: [shuffled[court2Pairs[0][0]], shuffled[court2Pairs[0][1]]],
+                        team2: [shuffled[court2Pairs[1][0]], shuffled[court2Pairs[1][1]]],
                         score1: 0,
                         score2: 0,
                         completed: false
@@ -558,6 +628,7 @@
         // Nollställ allt till startskärm
         appState.activeTournamentId = null;
 
+        // Om användaren var inloggad som spelare i turneringen, nollställ sessionen
         if (appState.currentUser && appState.currentUser.role === 'player') {
             appState.currentUser = null;
             saveUser();
@@ -593,7 +664,7 @@
     }
 
     // =========================================================================
-    // 7. RESULTAT & TABELLBERÄKNING
+    // 8. RESULTAT & TABELLBERÄKNING
     // =========================================================================
 
     function calculateLeaderboard(tourney) {
@@ -647,7 +718,6 @@
         const list = Object.values(stats);
         list.forEach(item => {
             item.diff = item.pointsScored - item.pointsConceded;
-            // I Game-räkning är totalpoängen antalet vunna game
             item.totalPoints = item.pointsScored;
         });
 
@@ -670,6 +740,11 @@
         const match = round.matches[courtIndex];
         if (!match) return;
 
+        if (!canUserEditMatch(match)) {
+            alert('Du har inte behörighet att rapportera denna match.');
+            return;
+        }
+
         const input1 = document.getElementById(`court${courtIndex + 1}Score1`);
         const input2 = document.getElementById(`court${courtIndex + 1}Score2`);
 
@@ -687,7 +762,7 @@
     }
 
     // =========================================================================
-    // 8. RENDERING & UI-UPPDATERINGAR
+    // 9. RENDERING & ANVÄNDARVISNING
     // =========================================================================
 
     function renderApp() {
@@ -740,17 +815,29 @@
         renderMenuView(tourney);
     }
 
+    /**
+     * Header & Användarstatus
+     */
     function renderUserStatus() {
-        const btnUser = document.getElementById('btnUserHeader');
         const iconEl = document.getElementById('headerUserIcon');
         const nameEl = document.getElementById('headerUserName');
+        const btnUser = document.getElementById('btnUserHeader');
 
         if (appState.currentUser) {
-            if (iconEl) iconEl.textContent = appState.currentUser.role === 'admin' ? '👑' : '🎾';
-            if (nameEl) nameEl.textContent = appState.currentUser.name;
+            if (appState.currentUser.role === 'admin') {
+                if (iconEl) iconEl.textContent = '👑';
+                if (nameEl) nameEl.textContent = `Arrangör (${appState.currentUser.name})`;
+                if (btnUser) btnUser.style.borderColor = 'var(--primary)';
+            } else {
+                if (iconEl) iconEl.textContent = '🎾';
+                if (nameEl) nameEl.textContent = appState.currentUser.name;
+                if (btnUser) btnUser.style.borderColor = 'rgba(0, 230, 118, 0.4)';
+            }
         } else {
+            // INGEN STÅR SOM INLOGGAD
             if (iconEl) iconEl.textContent = '👤';
             if (nameEl) nameEl.textContent = 'Logga in';
+            if (btnUser) btnUser.style.borderColor = 'var(--border-subtle)';
         }
     }
 
@@ -773,7 +860,9 @@
         if (!rosterEl) return;
         rosterEl.innerHTML = '';
 
-        const isOrg = isUserOrganizerOf(tourney);
+        const isUserAdmin = isOrganizer();
+        const currentUserId = appState.currentUser ? appState.currentUser.id : null;
+        const currentUserName = appState.currentUser ? (appState.currentUser.name || '').toLowerCase() : '';
 
         for (let i = 0; i < 8; i++) {
             const player = tourney.players[i];
@@ -781,14 +870,33 @@
             row.className = 'roster-slot-row';
 
             if (player) {
+                const isMe = (currentUserId && player.id === currentUserId) || 
+                             (currentUserName && player.name.toLowerCase() === currentUserName);
+
+                if (isMe) row.classList.add('is-current-user');
+
+                let badgeHtml = '';
+                if (player.isOrganizer && isMe) {
+                    badgeHtml = '<span class="badge-you">Du / Arrangör</span>';
+                } else if (isMe) {
+                    badgeHtml = '<span class="badge-you">Du</span>';
+                } else if (player.isOrganizer) {
+                    badgeHtml = '<span class="badge-organizer">Arrangör</span>';
+                }
+
+                // Endast arrangören kan ta bort spelare med (✕) innan lottning
+                const deleteBtnHtml = (!tourney.isDrawn && isUserAdmin) 
+                    ? `<button type="button" class="btn-remove-player" data-idx="${i}" title="Ta bort spelare">✕</button>` 
+                    : '';
+
                 row.innerHTML = `
                     <div class="slot-left">
                         <span class="slot-index">${i + 1}</span>
                         <span class="slot-name">${escapeHtml(player.name)}</span>
                     </div>
                     <div class="slot-badges">
-                        ${player.isOrganizer ? '<span class="badge-organizer">Arrangör</span>' : ''}
-                        ${(!tourney.isDrawn && isOrg) ? `<button type="button" class="btn-remove-player" data-idx="${i}" title="Ta bort">✕</button>` : ''}
+                        ${badgeHtml}
+                        ${deleteBtnHtml}
                     </div>
                 `;
             } else {
@@ -822,24 +930,30 @@
             if (drawnNotice) drawnNotice.style.display = 'none';
             if (btnDraw) {
                 btnDraw.style.display = 'block';
-                if (count === 8) {
-                    btnDraw.disabled = false;
-                    btnDraw.textContent = '🎲 Lotta spelschema';
+                if (isUserAdmin) {
+                    if (count === 8) {
+                        btnDraw.disabled = false;
+                        btnDraw.textContent = '🎲 Lotta spelschema';
+                    } else {
+                        btnDraw.disabled = true;
+                        btnDraw.textContent = `Lotta spelschema (${8 - count} platser kvar)`;
+                    }
                 } else {
                     btnDraw.disabled = true;
-                    btnDraw.textContent = `Lotta spelschema (${8 - count} platser kvar)`;
+                    btnDraw.textContent = count === 8 
+                        ? '8/8 anmälda – arrangören lottar snart' 
+                        : `Väntar på 8 spelare (${count}/8)`;
                 }
             }
         }
     }
 
     /**
-     * Flik 2: Matcher
+     * Flik 2: Matcher (med rollbaserat matchfokus)
      */
     function renderMatchesView(tourney) {
         const notDrawnBox = document.getElementById('notDrawnBox');
         const activeContainer = document.getElementById('matchesActiveContainer');
-        const roundPicker = document.getElementById('roundPicker');
 
         if (!tourney.isDrawn || !tourney.rounds || tourney.rounds.length === 0) {
             if (notDrawnBox) notDrawnBox.style.display = 'block';
@@ -850,7 +964,7 @@
         if (notDrawnBox) notDrawnBox.style.display = 'none';
         if (activeContainer) activeContainer.style.display = 'flex';
 
-        // Uppdatera piller
+        // Uppdatera omgångspiller
         document.querySelectorAll('.round-pill').forEach((pill, idx) => {
             pill.classList.toggle('active', idx === appState.currentRoundIndex);
         });
@@ -858,24 +972,84 @@
         const round = tourney.rounds[appState.currentRoundIndex];
         if (!round || !round.matches) return;
 
-        // Rendera Bana 1 & Bana 2
+        const currentUserId = appState.currentUser ? appState.currentUser.id : null;
+        const currentUserName = appState.currentUser ? (appState.currentUser.name || '').toLowerCase() : '';
+
+        // Rendera Bana 1 och Bana 2
         round.matches.forEach((m, cIdx) => {
-            const card = document.getElementById(`courtCard${cIdx + 1}`);
-            const statusEl = document.getElementById(`courtStatus${cIdx + 1}`);
-            const t1Names = document.getElementById(`court${cIdx + 1}Team1Names`);
-            const t2Names = document.getElementById(`court${cIdx + 1}Team2Names`);
-            const s1Input = document.getElementById(`court${cIdx + 1}Score1`);
-            const s2Input = document.getElementById(`court${cIdx + 1}Score2`);
-            const row1 = document.getElementById(`court${cIdx + 1}Team1Row`);
-            const row2 = document.getElementById(`court${cIdx + 1}Team2Row`);
+            const courtNum = cIdx + 1;
+            const card = document.getElementById(`courtCard${courtNum}`);
+            const statusEl = document.getElementById(`courtStatus${courtNum}`);
+            const userTag = document.getElementById(`courtUserTag${courtNum}`);
+            const t1Names = document.getElementById(`court${courtNum}Team1Names`);
+            const t2Names = document.getElementById(`court${courtNum}Team2Names`);
+            const s1Input = document.getElementById(`court${courtNum}Score1`);
+            const s2Input = document.getElementById(`court${courtNum}Score2`);
+            const row1 = document.getElementById(`court${courtNum}Team1Row`);
+            const row2 = document.getElementById(`court${courtNum}Team2Row`);
+            const btnSave = document.getElementById(`btnSaveCourt${courtNum}`);
+            const lockedLabel = document.getElementById(`courtLockedLabel${courtNum}`);
 
-            if (t1Names) t1Names.textContent = `${m.team1[0].name} & ${m.team1[1].name}`;
-            if (t2Names) t2Names.textContent = `${m.team2[0].name} & ${m.team2[1].name}`;
+            const isUserInThisMatch = isCurrentUserInMatch(m);
+            const canEdit = canUserEditMatch(m);
 
+            // Framhäv "DIN MATCH"
+            if (userTag) {
+                userTag.style.display = isUserInThisMatch ? 'inline-block' : 'none';
+            }
+            if (card) {
+                card.classList.toggle('is-my-match', isUserInThisMatch);
+                card.classList.toggle('is-other-match', isPlayer() && !isUserInThisMatch);
+                card.classList.toggle('completed', m.completed);
+            }
+
+            // Formatera lagnamn och markera (Du)
+            const formatTeam = (team) => {
+                return team.map(p => {
+                    const isMe = (currentUserId && p.id === currentUserId) || 
+                                 (currentUserName && p.name.toLowerCase() === currentUserName);
+                    return isMe ? `${p.name} (Du)` : p.name;
+                }).join(' & ');
+            };
+
+            if (t1Names) t1Names.textContent = formatTeam(m.team1);
+            if (t2Names) t2Names.textContent = formatTeam(m.team2);
+
+            // Poängsiffror
             if (s1Input && document.activeElement !== s1Input) s1Input.value = m.score1;
             if (s2Input && document.activeElement !== s2Input) s2Input.value = m.score2;
 
-            if (card) card.classList.toggle('completed', m.completed);
+            // Behörigheter för inmatning
+            const minusBtns = card.querySelectorAll('.score-minus');
+            const plusBtns = card.querySelectorAll('.score-plus');
+
+            if (canEdit) {
+                if (s1Input) s1Input.readOnly = false;
+                if (s2Input) s2Input.readOnly = false;
+                minusBtns.forEach(b => b.style.display = 'flex');
+                plusBtns.forEach(b => b.style.display = 'flex');
+                if (btnSave) btnSave.style.display = 'block';
+                if (lockedLabel) lockedLabel.style.display = 'none';
+            } else {
+                if (s1Input) s1Input.readOnly = true;
+                if (s2Input) s2Input.readOnly = true;
+                minusBtns.forEach(b => b.style.display = 'none');
+                plusBtns.forEach(b => b.style.display = 'none');
+                if (btnSave) btnSave.style.display = 'none';
+                if (lockedLabel) {
+                    lockedLabel.style.display = 'block';
+                    if (isGuest()) {
+                        lockedLabel.innerHTML = 'Logga in som spelare eller arrangör för att rapportera resultat.';
+                        lockedLabel.style.cursor = 'pointer';
+                        lockedLabel.onclick = () => openModal('modalAuth');
+                    } else {
+                        lockedLabel.textContent = `Parallell match på Bana ${courtNum}`;
+                        lockedLabel.style.cursor = 'default';
+                        lockedLabel.onclick = null;
+                    }
+                }
+            }
+
             if (statusEl) statusEl.textContent = m.completed ? '✓ Klar' : 'Pågående';
 
             if (row1 && row2) {
@@ -899,8 +1073,16 @@
             return;
         }
 
+        const currentUserId = appState.currentUser ? appState.currentUser.id : null;
+        const currentUserName = appState.currentUser ? (appState.currentUser.name || '').toLowerCase() : '';
+
         leaderboard.forEach((item, index) => {
             const tr = document.createElement('tr');
+            const isMe = (currentUserId && item.id === currentUserId) || 
+                         (currentUserName && item.name.toLowerCase() === currentUserName);
+
+            if (isMe) tr.classList.add('row-current-user');
+
             let rankClass = '';
             let rankDisplay = index + 1;
             if (index === 0) { rankClass = 'rank-gold'; rankDisplay = '🥇'; }
@@ -908,10 +1090,11 @@
             else if (index === 2) { rankClass = 'rank-bronze'; rankDisplay = '🥉'; }
 
             const diffDisplay = item.diff > 0 ? `+${item.diff}` : item.diff;
+            const displayName = isMe ? `${escapeHtml(item.name)} <span style="color:var(--primary); font-size:11px;">(Du)</span>` : escapeHtml(item.name);
 
             tr.innerHTML = `
                 <td class="col-rank ${rankClass}">${rankDisplay}</td>
-                <td class="col-player">${escapeHtml(item.name)}</td>
+                <td class="col-player">${displayName}</td>
                 <td class="col-stat text-center">${item.matchesPlayed}</td>
                 <td class="col-stat text-center">${diffDisplay}</td>
                 <td class="col-points text-right">${item.totalPoints}</td>
@@ -927,20 +1110,41 @@
         const userIcon = document.getElementById('menuUserIcon');
         const userName = document.getElementById('menuUserName');
         const userRole = document.getElementById('menuUserRole');
+        const btnLogin = document.getElementById('btnMenuLogin');
+        const btnLogout = document.getElementById('btnMenuLogout');
+        const adminZone = document.getElementById('menuAdminZone');
+        const adminCodeText = document.getElementById('menuAdminCodeText');
         const archiveCount = document.getElementById('menuArchiveCountText');
 
         if (appState.currentUser) {
-            if (userIcon) userIcon.textContent = appState.currentUser.role === 'admin' ? '👑' : '🎾';
-            if (userName) userName.textContent = appState.currentUser.name;
-            if (userRole) {
-                userRole.textContent = appState.currentUser.role === 'admin' 
-                    ? 'Arrangör (Admin)' 
-                    : `Spelare ${appState.currentUser.pin ? '· PIN: ' + appState.currentUser.pin : ''}`;
+            if (isOrganizer()) {
+                if (userIcon) userIcon.textContent = '👑';
+                if (userName) userName.textContent = appState.currentUser.name;
+                if (userRole) userRole.textContent = `Arrangör (Admin) · Kod: ${tourney ? tourney.adminCode : 'PT-00'}`;
+            } else {
+                if (userIcon) userIcon.textContent = '🎾';
+                if (userName) userName.textContent = appState.currentUser.name;
+                if (userRole) userRole.textContent = `Spelare · PIN: ${appState.currentUser.pin || 'Saknas'}`;
             }
+
+            if (btnLogin) btnLogin.textContent = 'Byt användare';
+            if (btnLogout) btnLogout.style.display = 'inline-flex';
         } else {
+            // INGEN STÅR SOM INLOGGAD
             if (userIcon) userIcon.textContent = '👤';
             if (userName) userName.textContent = 'Gästläge';
-            if (userRole) userRole.textContent = 'Visningsläge – Logga in för att rapportera';
+            if (userRole) userRole.textContent = 'Inte inloggad – Visningsläge';
+
+            if (btnLogin) btnLogin.textContent = 'Logga in';
+            if (btnLogout) btnLogout.style.display = 'none';
+        }
+
+        // Arrangörsfunktioner visas ENDAST om arrangören är inloggad
+        if (adminZone) {
+            adminZone.style.display = isOrganizer() ? 'flex' : 'none';
+        }
+        if (adminCodeText && tourney) {
+            adminCodeText.textContent = tourney.adminCode || 'PT-00';
         }
 
         if (archiveCount) {
@@ -950,12 +1154,17 @@
     }
 
     // =========================================================================
-    // 9. MODALER & NOTIFIERINGAR
+    // 10. MODALER & NOTIFIERINGAR
     // =========================================================================
 
     function openModal(modalId) {
         const el = document.getElementById(modalId);
         if (el) el.style.display = 'flex';
+
+        if (modalId === 'modalAuth') {
+            setupAuthModalContent();
+        }
+
         playClick();
     }
 
@@ -964,10 +1173,52 @@
         if (el) el.style.display = 'none';
     }
 
-    function showPinConfirmModal(name, pin) {
-        document.getElementById('pinConfirmName').textContent = name;
-        document.getElementById('pinConfirmCode').textContent = pin;
-        openModal('modalPinConfirm');
+    function setupAuthModalContent() {
+        const tourney = getActiveTournament();
+        const playerGrid = document.getElementById('authPlayerGrid');
+        const pinGroup = document.getElementById('authPlayerPinGroup');
+        const logoutWrap = document.getElementById('authModalLogoutWrap');
+
+        selectedPlayerForLogin = null;
+        if (pinGroup) pinGroup.style.display = 'none';
+        const pinInput = document.getElementById('authPlayerPinInput');
+        if (pinInput) pinInput.value = '';
+
+        if (logoutWrap) {
+            logoutWrap.style.display = appState.currentUser ? 'block' : 'none';
+        }
+
+        if (!playerGrid) return;
+        playerGrid.innerHTML = '';
+
+        if (!tourney || !tourney.players || tourney.players.length === 0) {
+            playerGrid.innerHTML = '<span style="font-size:12px;color:var(--text-muted);grid-column:span 2;">Inga spelare är anmälda än.</span>';
+            return;
+        }
+
+        tourney.players.forEach(p => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'player-select-btn';
+            btn.textContent = p.name;
+            btn.dataset.playerId = p.id;
+
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.player-select-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                selectedPlayerForLogin = p;
+
+                const nameDisplay = document.getElementById('authSelectedPlayerName');
+                if (nameDisplay) nameDisplay.textContent = p.name;
+                if (pinGroup) pinGroup.style.display = 'block';
+                if (pinInput) {
+                    pinInput.focus();
+                }
+                playClick();
+            });
+
+            playerGrid.appendChild(btn);
+        });
     }
 
     function showToast(message) {
@@ -1072,7 +1323,7 @@
     }
 
     // =========================================================================
-    // 10. NAVIGERING MELLAN FLIKAR
+    // 11. NAVIGERING MELLAN FLIKAR
     // =========================================================================
 
     function switchView(viewId) {
@@ -1105,7 +1356,7 @@
     }
 
     // =========================================================================
-    // 11. HÄNDELSELYSSNARE (EVENT LISTENERS)
+    // 12. HÄNDELSELYSSNARE (EVENT LISTENERS)
     // =========================================================================
 
     function setupEventListeners() {
@@ -1136,6 +1387,7 @@
         // Meny knappar
         document.getElementById('btnMenuNewTourney').addEventListener('click', () => openModal('modalNewTourney'));
         document.getElementById('btnMenuLogin').addEventListener('click', () => openModal('modalAuth'));
+        document.getElementById('btnMenuLogout').addEventListener('click', logoutUser);
         document.getElementById('btnUserHeader').addEventListener('click', () => openModal('modalAuth'));
         document.getElementById('btnOpenArchiveModal').addEventListener('click', () => {
             renderArchiveModal();
@@ -1150,30 +1402,43 @@
         });
 
         // Länkdelning
-        const copyHandler = () => {
+        const copyInviteHandler = () => {
             const active = getActiveTournament();
             if (!active) return;
-            const url = getShareableUrl(active);
+            const url = getShareableUrl(active, false);
             navigator.clipboard.writeText(url).then(() => {
-                showToast('📋 Inbjudningslänk kopierad till urklipp!');
+                showToast('📋 Deltagarlänk kopierad!');
                 playSuccess();
             }).catch(() => {
-                prompt('Kopiera länken här:', url);
+                prompt('Kopiera deltagarlänken här:', url);
             });
         };
 
-        const whatsappHandler = () => {
+        const copyAdminLinkHandler = () => {
             const active = getActiveTournament();
             if (!active) return;
-            const url = getShareableUrl(active);
+            const url = getShareableUrl(active, true);
+            navigator.clipboard.writeText(url).then(() => {
+                showToast('🔑 Arrangörslänk med full behörighet kopierad!');
+                playSuccess();
+            }).catch(() => {
+                prompt('Kopiera arrangörslänken här:', url);
+            });
+        };
+
+        const whatsappInviteHandler = () => {
+            const active = getActiveTournament();
+            if (!active) return;
+            const url = getShareableUrl(active, false);
             const text = encodeURIComponent(`Hej! Här är länken till vår padelturnering ${active.name}: ${url}`);
             window.open(`https://wa.me/?text=${text}`, '_blank');
         };
 
-        document.getElementById('btnCopyInviteLink').addEventListener('click', copyHandler);
-        document.getElementById('btnMenuCopyLink').addEventListener('click', copyHandler);
-        document.getElementById('btnWhatsappInvite').addEventListener('click', whatsappHandler);
-        document.getElementById('btnMenuWhatsapp').addEventListener('click', whatsappHandler);
+        document.getElementById('btnCopyInviteLink').addEventListener('click', copyInviteHandler);
+        document.getElementById('btnMenuCopyLink').addEventListener('click', copyInviteHandler);
+        document.getElementById('btnCopyAdminLink').addEventListener('click', copyAdminLinkHandler);
+        document.getElementById('btnWhatsappInvite').addEventListener('click', whatsappInviteHandler);
+        document.getElementById('btnMenuWhatsapp').addEventListener('click', whatsappInviteHandler);
 
         // Lottningsknapp
         document.getElementById('btnDrawSchedule').addEventListener('click', () => {
@@ -1190,7 +1455,7 @@
             btnGoMatches.addEventListener('click', () => switchView('viewPlayers'));
         }
 
-        // Ta plats klick
+        // Ta plats & Ta bort klick i spelarlistan
         document.getElementById('rosterList').addEventListener('click', (e) => {
             const takeBtn = e.target.closest('.btn-take-slot');
             if (takeBtn) {
@@ -1224,7 +1489,7 @@
                 const team = btn.dataset.team;
                 const isPlus = btn.classList.contains('score-plus');
                 const input = document.getElementById(`court${parseInt(court, 10) + 1}Score${team}`);
-                if (input) {
+                if (input && !input.readOnly) {
                     let val = parseInt(input.value, 10) || 0;
                     val = isPlus ? val + 1 : Math.max(0, val - 1);
                     input.value = val;
@@ -1281,10 +1546,73 @@
             }
         });
 
-        // Formulär: Logga in
-        document.getElementById('formAuth').addEventListener('submit', (e) => {
+        // =====================================================================
+        // AUTH MODAL LOGIK: SPELARE VS ARRANGÖR
+        // =====================================================================
+
+        const tabBtnPlayer = document.getElementById('authTabBtnPlayer');
+        const tabBtnAdmin = document.getElementById('authTabBtnAdmin');
+        const secPlayer = document.getElementById('authSectionPlayer');
+        const secAdmin = document.getElementById('authSectionAdmin');
+
+        if (tabBtnPlayer && tabBtnAdmin) {
+            tabBtnPlayer.addEventListener('click', () => {
+                tabBtnPlayer.classList.add('active');
+                tabBtnAdmin.classList.remove('active');
+                if (secPlayer) secPlayer.style.display = 'block';
+                if (secAdmin) secAdmin.style.display = 'none';
+                playClick();
+            });
+
+            tabBtnAdmin.addEventListener('click', () => {
+                tabBtnAdmin.classList.add('active');
+                tabBtnPlayer.classList.remove('active');
+                if (secAdmin) secAdmin.style.display = 'block';
+                if (secPlayer) secPlayer.style.display = 'none';
+                playClick();
+            });
+        }
+
+        // Spelarinloggning med vald spelare + PIN
+        document.getElementById('btnSubmitPlayerLogin').addEventListener('click', () => {
+            if (!selectedPlayerForLogin) {
+                alert('Välj först ditt namn i listan.');
+                return;
+            }
+
+            const pinInput = document.getElementById('authPlayerPinInput');
+            const enteredPin = (pinInput ? pinInput.value : '').trim();
+
+            if (!enteredPin) {
+                alert('Ange din 4-siffriga PIN-kod.');
+                return;
+            }
+
+            if (selectedPlayerForLogin.pin && selectedPlayerForLogin.pin.toString() === enteredPin) {
+                appState.currentUser = {
+                    id: selectedPlayerForLogin.id,
+                    name: selectedPlayerForLogin.name,
+                    pin: selectedPlayerForLogin.pin,
+                    role: 'player'
+                };
+                saveUser();
+                closeModal('modalAuth');
+                renderApp();
+                playSuccess();
+                showToast(`🎾 Välkommen, ${selectedPlayerForLogin.name}!`);
+            } else {
+                alert(`Felaktig PIN-kod för ${selectedPlayerForLogin.name}. Kontrollera koden och försök igen.`);
+                if (pinInput) {
+                    pinInput.value = '';
+                    pinInput.focus();
+                }
+            }
+        });
+
+        // Arrangörsinloggning med PT-xx eller nyckel
+        document.getElementById('formAdminAuth').addEventListener('submit', (e) => {
             e.preventDefault();
-            const code = document.getElementById('authCodeInput').value.trim();
+            const code = document.getElementById('authAdminCodeInput').value.trim();
             const tourney = getActiveTournament();
 
             if (!tourney) {
@@ -1292,10 +1620,11 @@
                 return;
             }
 
-            // Arrangörsinloggning med PT-xx eller nyckel
-            if (code.toLowerCase() === 'ulrik' || 
-                (tourney.adminCode && code.toUpperCase() === tourney.adminCode.toUpperCase()) ||
-                (tourney.adminKey && code === tourney.adminKey)) {
+            const isMaster = code.toLowerCase() === 'ulrik';
+            const matchesCode = tourney.adminCode && code.toUpperCase() === tourney.adminCode.toUpperCase();
+            const matchesKey = tourney.adminKey && code === tourney.adminKey;
+
+            if (isMaster || matchesCode || matchesKey) {
                 appState.currentUser = {
                     id: (tourney.organizer && tourney.organizer.id) ? tourney.organizer.id : 'org_' + tourney.id,
                     name: (tourney.organizer && tourney.organizer.name) ? tourney.organizer.name : 'Arrangör',
@@ -1309,42 +1638,20 @@
                 playSuccess();
                 showToast(`👑 Inloggad som Arrangör (${appState.currentUser.name})`);
                 e.target.reset();
-                return;
+            } else {
+                alert('Felaktig arrangörskod. Ange koden som skapades med turneringen (t.ex. PT-xx).');
             }
-
-            // Spelarinloggning med 4-siffrig PIN
-            const foundPlayer = tourney.players.find(p => p.pin && p.pin.toString() === code);
-            if (foundPlayer) {
-                appState.currentUser = {
-                    id: foundPlayer.id,
-                    name: foundPlayer.name,
-                    pin: foundPlayer.pin,
-                    role: 'player'
-                };
-                saveUser();
-                closeModal('modalAuth');
-                renderApp();
-                playSuccess();
-                showToast(`🎾 Inloggad som Spelare (${foundPlayer.name})`);
-                e.target.reset();
-                return;
-            }
-
-            alert('Felaktig kod. Ange din 4-siffriga spelar-PIN eller arrangörskoden (PT-xx).');
         });
 
-        document.getElementById('btnAuthLogout').addEventListener('click', () => {
-            appState.currentUser = null;
-            saveUser();
+        // Logga ut inifrån modalen
+        document.getElementById('btnModalLogout').addEventListener('click', () => {
             closeModal('modalAuth');
-            renderApp();
-            playClick();
-            showToast('Du är nu i gästläge.');
+            logoutUser();
         });
     }
 
     // =========================================================================
-    // 12. INITIERING
+    // 13. INITIERING
     // =========================================================================
 
     function init() {
