@@ -413,17 +413,18 @@
     <div class="modal-overlay" id="modalTakeSlot" style="display: none;">
         <div class="modal-card">
             <div class="modal-header">
-                <h3 class="modal-title" id="takeSlotModalTitle">Ta plats i turneringen</h3>
+                <h3 class="modal-title" id="takeSlotModalTitle">Gå med i turneringen</h3>
                 <button type="button" class="btn-close-modal" id="btnCloseTakeSlotModal">✕</button>
             </div>
             <form id="formTakeSlot">
                 <input type="hidden" id="takeSlotIndex" value="">
                 <div class="form-group">
-                    <label class="form-label" for="takeSlotPlayerName">Spelarens namn</label>
-                    <input type="text" class="form-input" id="takeSlotPlayerName" placeholder="Förnamn eller smeknamn" required autocomplete="name">
+                    <label class="form-label" for="takeSlotPlayerName" id="takeSlotNameLabel">Ditt namn</label>
+                    <input type="text" class="form-input" id="takeSlotPlayerName" placeholder="Skriv ditt namn" required autocomplete="name">
+                    <span class="form-hint" id="takeSlotHint">Du loggas in automatiskt och får din personliga 4-siffriga kod.</span>
                 </div>
                 <div class="modal-actions">
-                    <button type="submit" class="btn btn-primary btn-block">Boka plats</button>
+                    <button type="submit" class="btn btn-primary btn-block" id="btnSubmitTakeSlot">Gå med & visa min kod</button>
                 </div>
             </form>
         </div>
@@ -464,13 +465,16 @@
                 Välkommen till turneringen, <strong id="pinConfirmName">Spelare</strong>!
             </p>
             <div class="pin-display-box">
-                <span class="pin-display-label">Din personliga PIN-kod:</span>
+                <span class="pin-display-label" id="pinDisplayLabel">Din personliga PIN-kod:</span>
                 <span class="pin-display-code" id="pinConfirmCode">0000</span>
             </div>
             <p class="pin-tip" id="pinConfirmTip">
                 Spara koden för att logga in på din mobil och rapportera matchresultat.
             </p>
-            <button type="button" class="btn btn-primary btn-block" id="btnClosePinConfirm">Klar</button>
+            <div class="modal-actions" style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
+                <button type="button" class="btn btn-secondary btn-block" id="btnCopyPinConfirm">📋 Kopiera min kod</button>
+                <button type="button" class="btn btn-primary btn-block" id="btnClosePinConfirm">Klar &ndash; gå till turneringen</button>
+            </div>
         </div>
     </div>
 

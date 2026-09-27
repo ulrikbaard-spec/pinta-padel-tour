@@ -469,6 +469,14 @@
 
     function registerPlayer(tourney, name, slotIndex) {
         if (!tourney) return false;
+
+        // Bara en inloggad arrangör ska kunna lägga till fler spelare.
+        // En inloggad spelare kan INTE lägga till fler spelare.
+        if (isPlayer()) {
+            alert('Endast en inloggad arrangör kan lägga till fler spelare.');
+            return false;
+        }
+
         if (tourney.players.length >= 8) {
             alert('Turneringen är redan full (8 spelare).');
             return false;
@@ -476,6 +484,14 @@
 
         const cleanName = name.trim();
         if (!cleanName) return false;
+
+        // Kontrollera att inte samma spelarnamn ges flera gånger (skiftlägesokänsligt)
+        const nameLower = cleanName.toLowerCase();
+        const isDuplicate = (tourney.players || []).some(p => p.name.trim().toLowerCase() === nameLower);
+        if (isDuplicate) {
+            alert(`Spelarnamnet "${cleanName}" finns redan i turneringen. Samma namn kan inte användas flera gånger. Välj ett annat namn eller lägg till initial/efternamn.`);
+            return false;
+        }
 
         const pin = Math.floor(1000 + Math.random() * 9000).toString();
         const newPlayer = {
@@ -489,7 +505,7 @@
 
         const wasOrganizer = isOrganizer();
 
-        // Om en gäst registrerar sig -> logga in direkt som denna spelare!
+        // När man som spelare går med i turnering och inte är inloggad -> logga in direkt som denna spelare!
         if (!wasOrganizer) {
             appState.currentUser = {
                 id: newPlayer.id,
@@ -497,33 +513,81 @@
                 pin: newPlayer.pin,
                 role: 'player'
             };
+            sessionStorage.removeItem(LOGOUT_FLAG_KEY);
             saveUser();
         }
 
         saveState();
+        triggerCloudSyncDebounced();
         renderApp();
 
-        // Visa PIN-bekräftelse med anpassat budskap
+        // Visa PIN-bekräftelse med tydlig kod och kopieringsmöjlighet
         const modalTitle = document.getElementById('pinConfirmTitle');
         const modalDesc = document.getElementById('pinConfirmDesc');
+        const modalLabel = document.getElementById('pinDisplayLabel');
         const modalTip = document.getElementById('pinConfirmTip');
+        const modalCode = document.getElementById('pinConfirmCode');
+        const copyBtn = document.getElementById('btnCopyPinConfirm');
+        const closeBtn = document.getElementById('btnClosePinConfirm');
+
+        if (modalCode) modalCode.textContent = newPlayer.pin;
 
         if (wasOrganizer) {
             if (modalTitle) modalTitle.textContent = 'Spelare tillagd!';
-            if (modalDesc) modalDesc.innerHTML = `<strong>${escapeHtml(newPlayer.name)}</strong> har tilldelats Plats ${tourney.players.length} av 8.`;
-            if (modalTip) modalTip.textContent = `Ge koden ${newPlayer.pin} till spelaren så kan de logga in på sin egen mobil. Du förblir inloggad som arrangör.`;
+            if (modalDesc) modalDesc.innerHTML = `<strong>${escapeHtml(newPlayer.name)}</strong> har lagts till på Plats ${tourney.players.length} av 8.`;
+            if (modalLabel) modalLabel.textContent = 'Spelarens inloggningskod:';
+            if (modalTip) modalTip.innerHTML = `Ge koden <strong>${newPlayer.pin}</strong> till spelaren så kan de logga in på sin egen mobil. Du förblir inloggad som arrangör.`;
+            if (copyBtn) copyBtn.textContent = `📋 Kopiera spelarens kod (${newPlayer.pin})`;
+            if (closeBtn) closeBtn.textContent = 'Stäng';
         } else {
-            if (modalTitle) modalTitle.textContent = 'Plats bokad!';
-            if (modalDesc) modalDesc.innerHTML = `Välkommen till turneringen, <strong>${escapeHtml(newPlayer.name)}</strong>! Du har Plats ${tourney.players.length} av 8.`;
-            if (modalTip) modalTip.textContent = 'Spara din 4-siffriga kod för att logga in och rapportera dina matcher.';
+            if (modalTitle) modalTitle.textContent = `🎉 Välkommen, ${escapeHtml(newPlayer.name)}!`;
+            if (modalDesc) modalDesc.innerHTML = `Du är nu anmäld och <strong>automatiskt inloggad</strong> på Plats ${tourney.players.length} av 8.`;
+            if (modalLabel) modalLabel.textContent = 'Din personliga inloggningskod:';
+            if (modalTip) modalTip.innerHTML = `<strong>Spara din 4-siffriga kod!</strong> Koden visas även vid ditt namn i spelarlistan (PIN: ${newPlayer.pin}). Du använder den om du byter telefon eller behöver logga in igen.`;
+            if (copyBtn) copyBtn.textContent = `📋 Kopiera min kod (${newPlayer.pin})`;
+            if (closeBtn) closeBtn.textContent = 'Jag har sparat koden – Fortsätt';
         }
 
-        document.getElementById('pinConfirmName').textContent = newPlayer.name;
-        document.getElementById('pinConfirmCode').textContent = newPlayer.pin;
         openModal('modalPinConfirm');
-
         playSuccess();
         return true;
+    }
+
+    function openTakeSlotModal(slotIndex) {
+        const tourney = getActiveTournament();
+        if (!tourney) return;
+
+        if (isPlayer()) {
+            alert('Endast en inloggad arrangör kan lägga till fler spelare.');
+            return;
+        }
+
+        const slotNum = parseInt(slotIndex, 10) + 1;
+        const titleEl = document.getElementById('takeSlotModalTitle');
+        const labelEl = document.getElementById('takeSlotNameLabel');
+        const inputEl = document.getElementById('takeSlotPlayerName');
+        const hintEl = document.getElementById('takeSlotHint');
+        const submitBtn = document.getElementById('btnSubmitTakeSlot');
+
+        document.getElementById('takeSlotIndex').value = slotIndex;
+        if (inputEl) inputEl.value = '';
+
+        if (isOrganizer()) {
+            if (titleEl) titleEl.textContent = `Lägg till spelare (Plats ${slotNum} av 8)`;
+            if (labelEl) labelEl.textContent = 'Spelarens namn:';
+            if (inputEl) inputEl.placeholder = 'Förnamn eller smeknamn';
+            if (hintEl) hintEl.textContent = 'Spelaren får en 4-siffrig PIN-kod som du kan ge till spelaren.';
+            if (submitBtn) submitBtn.textContent = 'Lägg till spelare';
+        } else {
+            if (titleEl) titleEl.textContent = `Gå med i turneringen (Plats ${slotNum} av 8)`;
+            if (labelEl) labelEl.textContent = 'Ditt namn:';
+            if (inputEl) inputEl.placeholder = 'Skriv ditt namn';
+            if (hintEl) hintEl.textContent = 'Du loggas in automatiskt och får din personliga 4-siffriga kod.';
+            if (submitBtn) submitBtn.textContent = 'Gå med & visa min kod';
+        }
+
+        openModal('modalTakeSlot');
+        if (inputEl) setTimeout(() => inputEl.focus(), 100);
     }
 
     function openEditPlayerModal(playerIndex) {
@@ -548,6 +612,14 @@
 
         if (!cleanName) {
             alert('Spelarens namn kan inte vara tomt.');
+            return;
+        }
+
+        // Kontrollera att namnet inte redan är taget av en annan spelare
+        const nameLower = cleanName.toLowerCase();
+        const isDuplicate = tourney.players.some((p, idx) => idx !== playerIndex && p.name.trim().toLowerCase() === nameLower);
+        if (isDuplicate) {
+            alert(`Spelarnamnet "${cleanName}" finns redan i turneringen. Samma namn kan inte användas flera gånger.`);
             return;
         }
 
@@ -987,14 +1059,32 @@
                     </div>
                 `;
             } else {
+                let actionBtnHtml = '';
+                if (isUserAdmin) {
+                    actionBtnHtml = `
+                        <button type="button" class="btn-take-slot" data-slot="${i}">
+                            + Lägg till spelare
+                        </button>
+                    `;
+                } else if (!appState.currentUser) {
+                    actionBtnHtml = `
+                        <button type="button" class="btn-take-slot" data-slot="${i}">
+                            + Gå med
+                        </button>
+                    `;
+                } else {
+                    // Inloggad spelare kan INTE lägga till fler spelare
+                    actionBtnHtml = `
+                        <span class="slot-waiting-label">Väntar på spelare</span>
+                    `;
+                }
+
                 row.innerHTML = `
                     <div class="slot-left">
                         <span class="slot-index">${i + 1}</span>
                         <span class="slot-empty-text">Ledig plats</span>
                     </div>
-                    <button type="button" class="btn-take-slot" data-slot="${i}">
-                        + Ta plats
-                    </button>
+                    ${actionBtnHtml}
                 `;
             }
             rosterEl.appendChild(row);
@@ -1546,9 +1636,12 @@
         document.getElementById('rosterList').addEventListener('click', (e) => {
             const takeBtn = e.target.closest('.btn-take-slot');
             if (takeBtn) {
+                if (isPlayer()) {
+                    alert('Endast en inloggad arrangör kan lägga till fler spelare.');
+                    return;
+                }
                 const slot = takeBtn.dataset.slot;
-                document.getElementById('takeSlotIndex').value = slot;
-                openModal('modalTakeSlot');
+                openTakeSlotModal(slot);
                 return;
             }
 
@@ -1604,6 +1697,27 @@
             closeModal('modalPinConfirm');
         });
 
+        const copyPinConfirmBtn = document.getElementById('btnCopyPinConfirm');
+        if (copyPinConfirmBtn) {
+            copyPinConfirmBtn.addEventListener('click', () => {
+                const code = (document.getElementById('pinConfirmCode').textContent || '').trim();
+                if (code && code !== '0000') {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(code).then(() => {
+                            const orig = copyPinConfirmBtn.textContent;
+                            copyPinConfirmBtn.textContent = '✓ Koden kopierades!';
+                            setTimeout(() => { copyPinConfirmBtn.textContent = orig; }, 2000);
+                            showToast(`📋 PIN-koden (${code}) kopierades!`);
+                        }).catch(() => {
+                            prompt('Kopiera din kod:', code);
+                        });
+                    } else {
+                        prompt('Kopiera din kod:', code);
+                    }
+                }
+            });
+        }
+
         document.getElementById('btnEmptyTrash').addEventListener('click', () => {
             if (confirm('Vill du tömma papperskorgen permanent? Detta kan inte ångras.')) {
                 appState.deletedTournaments = [];
@@ -1634,9 +1748,11 @@
             const slot = document.getElementById('takeSlotIndex').value;
             const tourney = getActiveTournament();
             if (tourney && name) {
-                registerPlayer(tourney, name, slot);
-                closeModal('modalTakeSlot');
-                e.target.reset();
+                const ok = registerPlayer(tourney, name, slot);
+                if (ok) {
+                    closeModal('modalTakeSlot');
+                    e.target.reset();
+                }
             }
         });
 
@@ -1708,6 +1824,7 @@
                     pin: selectedPlayerForLogin.pin,
                     role: 'player'
                 };
+                sessionStorage.removeItem(LOGOUT_FLAG_KEY);
                 saveUser();
                 closeModal('modalAuth');
                 renderApp();

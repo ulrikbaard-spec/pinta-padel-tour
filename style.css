@@ -456,6 +456,17 @@ html, body {
     border-color: var(--primary);
 }
 
+.slot-waiting-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px dashed var(--border-subtle);
+    letter-spacing: 0.02em;
+}
+
 /* Inbjudan */
 .invite-strip {
     display: flex;
