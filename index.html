@@ -3,900 +3,473 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#0c1412">
+    <title>Pinta Padel Tour – Turneringsmotor</title>
+    <meta name="description" content="Minimalistisk och blixtsnabb turneringsmotor för padel (8 spelare, 2 banor, 7 omgångar).">
+    <meta name="theme-color" content="#0a0f0d">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title id="pageTitle">Pinta Padel Tour – Turneringsmotor & Lottning</title>
-    <meta name="description" id="metaDescription" content="Officiell turneringsapp för Pinta Padel Tour. Inbjudningslänkar, inloggning för arrangör och spelare, radering och återställning av turneringar, manuell lottning och liveresultat för 8 spelare.">
-    
-    <!-- Open Graph & Meta för länkbeskrivning och förhandsvisning i Messenger, WhatsApp & SMS -->
-    <meta property="og:type" content="website">
-    <meta property="og:site_name" content="Pinta Padel Tour">
-    <meta property="og:title" id="ogTitle" content="Pinta Padel Tour – Padelturnering för 8 spelare">
-    <meta property="og:description" id="ogDesc" content="🎾 Anmäl dig till padelturneringen! Klicka på länken och fyll i ditt namn för att ta en plats.">
-    <meta name="twitter:card" content="summary">
-    <meta name="twitter:title" id="twTitle" content="Pinta Padel Tour – Padelturnering för 8 spelare">
-    <meta name="twitter:description" id="twDesc" content="🎾 Anmäl dig till padelturneringen! Klicka på länken och fyll i ditt namn för att ta en plats.">
-    <link rel="stylesheet" href="./style.css">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎾</text></svg>">
+
+    <!-- Typografi: Plus Jakarta Sans för atletisk, ren precision -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Paho MQTT för serverlös realtidssynk mellan mobiler -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <!-- Bakgrundseffekter -->
-    <div class="bg-decorations" aria-hidden="true">
-        <div class="glow-circle-1"></div>
-        <div class="glow-circle-2"></div>
-    </div>
+    <!-- APP WRAPPER -->
+    <div class="app-shell" id="appShell">
 
-    <!-- Huvudapplikation -->
-    <div class="app-wrapper">
-
-        <!-- Header -->
-        <header class="app-header">
-            <div class="brand">
-                <div class="brand-icon">🎾</div>
-                <div class="brand-text">
-                    <h1>Pinta Padel Tour</h1>
-                    <span>Turneringsmotor &amp; Lottning</span>
+        <!-- 1. TOP HEADER (EXAKT 1 REN RAD - INGA STAPLADE BANNERS) -->
+        <header class="app-header" id="appHeader">
+            <div class="header-left">
+                <span class="header-logo-icon">🎾</span>
+                <div class="header-titles">
+                    <h1 class="header-title" id="headerTourneyTitle">Pinta Padel Tour</h1>
+                    <span class="header-sub" id="headerTourneySub">Lag-serie (7 omgångar)</span>
                 </div>
             </div>
-
-            <div class="header-actions">
-                <div class="cloud-status" id="cloudStatusIndicator" title="Synkstatus i realtid">
-                    <span class="cloud-dot"></span>
-                    <span id="cloudStatusText">Live Synkad</span>
-                </div>
-
-                <button class="btn-auth" id="btnUserAuth" title="Klicka för att logga in som arrangör eller spelare">
-                    <div class="user-avatar" id="headerUserAvatar">👤</div>
-                    <span id="headerUserName">Logga in</span>
+            <div class="header-right">
+                <span class="sync-dot" id="syncDot" title="Live-synk aktiv"></span>
+                <button type="button" class="btn-user-pill" id="btnUserHeader" title="Användarprofil / Logga in">
+                    <span class="user-role-icon" id="headerUserIcon">👤</span>
+                    <span class="user-name-text" id="headerUserName">Logga in</span>
                 </button>
             </div>
         </header>
 
-        <!-- Banner för gäst / ej inloggad (Tabell och spelschema kan ses fritt utan inloggning) -->
-        <div id="guestModeBanner" class="guest-banner" style="display: none;">
-            <div class="guest-banner-left">
-                <span class="guest-banner-icon">👁️</span>
-                <div class="guest-banner-text">
-                    <strong>Visningsläge för besökare:</strong>
-                    <span>Tabell och spelschema uppdateras i realtid och kan ses utan inloggning. För att rapportera eller ändra resultat måste du logga in.</span>
-                </div>
-            </div>
-            <button type="button" class="btn btn-primary btn-sm" id="btnGuestBannerLogin">
-                <span>👤</span> Logga in för att ändra
-            </button>
-        </div>
+        <!-- 2. MAIN CONTENT SCROLL AREA -->
+        <main class="app-main" id="appMain">
 
-        <!-- Turneringsbanner -->
-        <section class="tournament-banner" id="tournamentBanner">
-            <div class="active-tournament-info">
-                <h2>
-                    <span id="activeTournamentTitle">Laddar turnering...</span>
-                    <span class="tournament-badge" id="activeTournamentBadge">0 av 8 spelare</span>
-                </h2>
-                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 5px;">
-                    <span id="bannerOrganizerBadge" style="display: none; align-items: center; gap: 5px; font-size: 12px; font-weight: 800; color: #ffb703; background: rgba(255, 183, 3, 0.12); border: 1px solid rgba(255, 183, 3, 0.35); padding: 3px 10px; border-radius: var(--radius-full);">
-                        👑 Arrangör: <strong style="color: #fff;" id="bannerOrganizerName"></strong>
-                    </span>
-                    <p id="activeTournamentMeta" style="margin: 0;">Väntar på att spelare ska anmäla sig...</p>
-                </div>
-            </div>
-
-            <div class="banner-buttons">
-                <button class="btn btn-primary" id="btnBannerDraw" style="display: none;" title="Genomför lottning nu när 8 spelare är anmälda">
-                    <span>🎲</span> Lotta spelordning
-                </button>
-                <button class="btn btn-share" id="btnShareTournament" title="Skicka inbjudningslänk till spelarna">
-                    <span>📢</span> Bjud in spelare (Messenger / WhatsApp / Länk)
-                </button>
-                <button class="btn btn-primary" id="btnNewTournament" title="Skapa en helt ny turnering">
-                    <span>➕</span> Ny turnering
-                </button>
-                <button class="btn btn-secondary btn-sm" id="btnDeleteCurrentTourney" title="Radera denna turnering (hamnar i papperskorgen och kan återställas)" style="color: var(--danger); border-color: rgba(255, 82, 82, 0.35);">
-                    <span>🗑️</span> Radera
-                </button>
-            </div>
-        </section>
-
-        <!-- Banner när lottning just har genomförts -->
-        <div id="drawCelebrationBanner" class="draw-banner" style="display: none;">
-            <div style="display: flex; align-items: center; gap: 14px;">
-                <span style="font-size: 36px;">🎉</span>
-                <div>
-                    <h3 style="font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 2px;">Lottningen är genomförd! (8/8)</h3>
-                    <p style="font-size: 13.5px; color: var(--text-secondary); margin: 0;">Spelordningen har lottats. Matcherna på Bana 1 &amp; 2 och tabellen är nu aktiva!</p>
-                </div>
-            </div>
-            <button class="btn btn-primary btn-sm" id="btnGoToMatchesFromBanner">Visa spelschema 🎾</button>
-        </div>
-
-        <!-- Fliknavigering (Mobil- & desktopanpassad) -->
-        <nav class="nav-tabs" aria-label="Huvudflikar" id="mainNavTabs">
-            <button class="tab-btn active" data-tab="tabLobby" id="tabBtnLobby">
-                <span class="tab-icon">📋</span>
-                <span class="tab-label">
-                    <span class="tab-label-desktop">Väntrum &amp; Anmälan</span>
-                    <span class="tab-label-mobile">Väntrum</span>
-                </span>
-                <span class="tab-counter">(<span id="tabLobbyPlayerCount">0</span>/8)</span>
-            </button>
-            <button class="tab-btn" data-tab="tabLeaderboard" id="tabBtnLeaderboard">
-                <span class="tab-icon">🏆</span>
-                <span class="tab-label">
-                    <span class="tab-label-desktop">Tabell &amp; Liveresultat</span>
-                    <span class="tab-label-mobile">Tabell</span>
-                </span>
-            </button>
-            <button class="tab-btn" data-tab="tabMatches" id="tabBtnMatches">
-                <span class="tab-icon">🎾</span>
-                <span class="tab-label">
-                    <span class="tab-label-desktop">Spelschema</span>
-                    <span class="tab-label-mobile">Schema</span>
-                </span>
-            </button>
-            <button class="tab-btn" data-tab="tabHistory" id="tabBtnHistory">
-                <span class="tab-icon">📁</span>
-                <span class="tab-label">
-                    <span class="tab-label-desktop">Turneringsarkiv</span>
-                    <span class="tab-label-mobile">Arkiv</span>
-                </span>
-                <span class="tab-counter">(<span id="tabHistoryCount">0</span>)</span>
-            </button>
-        </nav>
-
-        <!-- Huvudinnehåll när en turnering är aktiv -->
-        <main id="contentContainer">
-
-            <!-- FLIK 1: VÄNTRUM & ANMÄLAN (0-8 SPELARE) -->
-            <section id="tabLobby" class="view-section active">
-                <div class="lobby-container">
-                    
-                    <!-- LOBBY PROGRESS CARD -->
-                    <div class="lobby-progress-card">
-                        <div class="lobby-progress-header">
-                            <div class="lobby-progress-title">
-                                <span>👥</span> Anmälda Spelare till Pinta Padel Tour
-                            </div>
-                            <div class="lobby-count-badge" id="lobbyCountBadge">
-                                0 av 8 platser fyllda
-                            </div>
-                        </div>
-
-                        <div class="progress-bar-wrap">
-                            <div class="progress-bar-inner" id="lobbyProgressBar" style="width: 0%;"></div>
-                        </div>
-
-                        <div class="progress-subtext">
-                            <span id="lobbyProgressStatusText">8 platser kvar. Skicka inbjudningslänken till dina vänner.</span>
-                            <span style="color: var(--primary); font-weight: 700;">Lottningsknapp aktiveras vid 8 spelare 🎲</span>
-                        </div>
-
-                        <!-- Arrangörs-information för alla spelare -->
-                        <div class="lobby-organizer-bar" id="lobbyOrganizerBar" style="display: none; align-items: center; justify-content: space-between; gap: 10px; font-size: 13.5px; color: var(--text-secondary); margin-top: 14px; margin-bottom: 14px; padding: 10px 14px; background: rgba(255, 183, 3, 0.08); border: 1px solid rgba(255, 183, 3, 0.25); border-radius: var(--radius-md); flex-wrap: wrap;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 18px;">👑</span>
-                                <span>Turneringens arrangör: <strong style="color: #fff; font-size: 14.5px;" id="lobbyOrganizerNameText"></strong></span>
-                            </div>
-                            <span style="font-size: 11.5px; color: #ffb703; font-weight: 700; background: rgba(255, 183, 3, 0.15); padding: 2px 8px; border-radius: var(--radius-full); border: 1px solid rgba(255, 183, 3, 0.3);">Håller i lottning & turnering</span>
-                        </div>
-
-                        <!-- 8 PLATSER GRID -->
-                        <div class="slots-grid" id="lobbySlotsGrid">
-                            <!-- Renderas dynamiskt i app.js (Plats 1 till 8) -->
-                        </div>
-
-                        <!-- LOTTNINGS-KNAPP (MANUELL LOTTNING NÄR 8 SPELARE ÄR ANMÄLDA) -->
-                        <div class="draw-action-box disabled" id="drawActionBox">
-                            <div class="draw-action-text">
-                                <span style="font-size: 32px;" id="drawActionIcon">⏳</span>
-                                <div>
-                                    <h3 style="font-size: 17px; font-weight: 800; color: #fff; margin-bottom: 3px;" id="drawActionTitle">
-                                        Lottning av Spelordning
-                                    </h3>
-                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0;" id="drawActionDesc">
-                                        Väntar på att alla 8 platser ska fyllas innan lottningsknappen aktiveras.
-                                    </p>
-                                </div>
-                            </div>
-                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                                <button type="button" class="btn btn-secondary btn-lg" id="btnDrawSchedule" disabled style="opacity: 0.5; cursor: not-allowed;">
-                                    <span>🎲</span> Lotta spelordning (<span id="drawScheduleBtnCount">0</span>/8)
-                                </button>
-                                <button type="button" class="btn btn-primary btn-lg" id="btnGoToMatchesFromLobby" style="display: none;">
-                                    <span>🎾</span> Visa spelschema
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- REGISTRERINGSKORT (FÖR SPELARE ATT ANMÄLA SIG HELT UTAN MAIL) -->
-                    <div class="registration-card" id="playerRegistrationCard">
-                        <div class="card-header" style="margin-bottom: 8px;">
-                            <h3 class="card-title">
-                                <span>🎾</span> Anmäl dig till turneringen
-                            </h3>
-                            <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">
-                                Fyll bara i ditt namn – ingen e-post behövs!
-                            </span>
-                        </div>
-
-                        <div id="alreadyRegisteredNotice" style="display: none; padding: 16px; background: rgba(0, 230, 118, 0.1); border: 1px solid var(--primary); border-radius: var(--radius-md); margin-bottom: 16px;">
-                            <div style="font-weight: 800; color: var(--primary); font-size: 15px;">✅ Du är redan anmäld!</div>
-                            <div style="font-size: 13.5px; color: var(--text-secondary); margin-top: 4px;" id="alreadyRegisteredDetails">
-                                Du är registrerad på plats i turneringen.
-                            </div>
-                        </div>
-
-                        <form id="formQuickRegisterName" class="quick-register-form">
-                            <div class="quick-register-input-wrap">
-                                <input type="text" id="quickRegisterNameInput" class="form-control form-control-lg" placeholder="Ditt för- och efternamn (t.ex. Johan Bergman)" required autocomplete="name">
-                                <button type="submit" class="btn btn-primary btn-lg" id="btnQuickRegister" style="white-space: nowrap; padding: 12px 24px;">
-                                    <span>🎾</span> Ta en plats!
-                                </button>
-                            </div>
-                            <p class="quick-register-hint">
-                                💡 <strong>100% utan mail:</strong> Fyll i ditt namn för att ta en plats. Appen slumpar en 4-siffrig personlig inloggningskod (t.ex. 4218) som visas direkt på skärmen och sparas automatiskt i din telefon så att du är inloggad direkt.
-                            </p>
-                        </form>
-                    </div>
-
-                    <!-- INBJUDNINGSPANEL MED FLERA KANALER -->
-                    <div class="card" id="invitePlayersCard">
-                        <div class="card-header">
-                            <h3 class="card-title">
-                                <span>📢</span> Bjud in spelare till turneringen
-                            </h3>
-                            <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">
-                                Skicka direkt till vänner eller i Messenger-gruppchatten
-                            </span>
-                        </div>
-
-                        <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 14px;">
-                            Skicka inbjudningslänken till dina padelvänner. När de klickar på länken fyller de bara i sitt namn för att ta en plats. När alla 8 är på plats trycker du på <strong>Lotta spelordning</strong>!
-                        </p>
-
-                        <div class="channels-row">
-                            <button type="button" class="btn btn-messenger" id="btnShareMessenger">
-                                <span>💬</span> Skicka i Messenger
-                            </button>
-                            <button type="button" class="btn btn-whatsapp" id="btnShareWhatsapp">
-                                <span>📱</span> WhatsApp
-                            </button>
-                            <button type="button" class="btn btn-secondary" id="btnCopyInviteLink">
-                                <span>📋</span> Kopiera länk
-                            </button>
-                            <button type="button" class="btn btn-secondary" id="btnCopyInviteText">
-                                <span>✉️</span> Kopiera inbjudningstext
-                            </button>
-                        </div>
-                    </div>
-
-                </div>
-            </section>
-
-            <!-- FLIK 2: TABELL & LIVERESULTAT -->
-            <section id="tabLeaderboard" class="view-section">
-                <!-- Visas om turneringen fortfarande är i lobby eller väntar på lottning -->
-                <div id="leaderboardLockedBanner" class="locked-banner" style="display: none;">
-                    <div class="locked-icon">🔒</div>
-                    <h3 class="locked-title" id="leaderboardLockedTitle">Tabellen öppnas efter genomförd lottning</h3>
-                    <p class="locked-desc" id="leaderboardLockedDesc">
-                        Just nu är <span id="lockedCountText">0 av 8</span> platser fyllda. När alla 8 personer anmält sig klickar du på lottningsknappen i väntrummet!
+            <!-- STARTSKÄRM: Visas när ingen turnering är aktiv eller efter radering -->
+            <section class="view-start" id="viewStartScreen" style="display: none;">
+                <div class="start-content">
+                    <div class="start-hero-icon">🎾</div>
+                    <h2 class="start-hero-title">Pinta Padel</h2>
+                    <p class="start-hero-sub">
+                        Minimalistisk turneringsmotor för 8 spelare på 2 banor. 
+                        Lottning, realtidssynk och live-tabell direkt i mobilen.
                     </p>
-                    <button class="btn btn-primary" id="btnGoToLobbyFromTable">Gå till anmälan / lottning 📋</button>
-                </div>
-
-                <!-- Visas när turneringen är lottad och aktiv -->
-                <div id="leaderboardActiveContent">
-                    <div class="card">
-                        <div class="card-header">
-                            <h2 class="card-title">
-                                <span>🏆</span> Pinta Padel Tour – Tabell &amp; Statistik
-                            </h2>
-                            <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">
-                                Uppdateras i realtid vid varje inmatat resultat
-                            </span>
-                        </div>
-
-                        <div class="table-responsive">
-                            <table class="table" aria-label="Turneringsstatistik och tabell">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 50px;">Plats</th>
-                                        <th>Spelare</th>
-                                        <th style="text-align: center; width: 60px;">M</th>
-                                        <th style="text-align: center; width: 60px; color: var(--primary);">V</th>
-                                        <th style="text-align: center; width: 60px;">F</th>
-                                        <th style="text-align: center; width: 110px;" id="thScoreCol">Game (V - F)</th>
-                                        <th style="text-align: center; width: 70px;" id="thDiffCol">Diff</th>
-                                        <th style="text-align: right; width: 110px;" id="thPointsCol">Vunna Game</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="leaderboardBody">
-                                    <!-- Fylls dynamiskt från app.js -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- FLIK 3: SPELSCHEMA -->
-            <section id="tabMatches" class="view-section">
-                <!-- Visas om turneringen är i lobby -->
-                <div id="matchesLockedBanner" class="locked-banner" style="display: none;">
-                    <div class="locked-icon">🎲</div>
-                    <h3 class="locked-title" id="matchesLockedTitle">Spelschemat lottas med knappen i väntrummet</h3>
-                    <p class="locked-desc" id="matchesLockedDesc">
-                        När alla 8 platser är tagna klickar du på "Lotta spelordning" för att generera matcherna på Bana 1 och Bana 2.
-                    </p>
-                    <button class="btn btn-primary" id="btnGoToLobbyFromMatches">Gå till väntrummet 📋</button>
-                </div>
-
-                <!-- Visas när turneringen är lottad -->
-                <div id="matchesActiveContent">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
-                        <!-- Runda-piller (Omgång 1-7) -->
-                        <div class="round-selector-wrapper" id="roundPillsContainer" aria-label="Välj omgång" style="margin-bottom: 0;">
-                            <!-- Fylls dynamiskt från app.js -->
-                        </div>
-
-                        <div class="draw-locked-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--success); font-weight: 700; background: rgba(0, 230, 118, 0.1); border: 1px solid rgba(0, 230, 118, 0.3); padding: 5px 12px; border-radius: var(--radius-full);">
-                            <span>🔒</span> Lottningen är klar och låst
-                        </div>
-                    </div>
-
-                    <div class="courts-container">
-                        <!-- Bana 1 -->
-                        <div class="court-card court-1">
-                            <div class="court-header">
-                                <div class="court-title">
-                                    <span>🎾</span> Bana 1
-                                </div>
-                                <span style="font-size: 12px; color: var(--accent-blue); font-weight: 700; text-transform: uppercase;">Glasbana A</span>
-                            </div>
-                            <div class="match-list" id="court1Matches">
-                                <!-- Matcher för Bana 1 renderas här -->
-                            </div>
-                        </div>
-
-                        <!-- Bana 2 -->
-                        <div class="court-card court-2">
-                            <div class="court-header">
-                                <div class="court-title">
-                                    <span>🎾</span> Bana 2
-                                </div>
-                                <span style="font-size: 12px; color: var(--primary); font-weight: 700; text-transform: uppercase;">Glasbana B</span>
-                            </div>
-                            <div class="match-list" id="court2Matches">
-                                <!-- Matcher för Bana 2 renderas här -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- FLIK 4: ARKIV / SPARADE TURNERINGAR & PAPPERSKORG -->
-            <section id="tabHistory" class="view-section">
-                <div class="card">
-                    <div style="margin-bottom: 14px;">
-                        <button type="button" class="btn btn-secondary btn-sm" id="btnBackToStartFromArchive" style="border-radius: var(--radius-full);">
-                            ← Tillbaka till startskärmen
+                    <div class="start-actions">
+                        <button type="button" class="btn btn-primary btn-block" id="btnStartCreate">
+                            ➕ Skapa ny turnering
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-block" id="btnStartArchive" style="display: none;">
+                            📁 Öppna arkiv (<span id="startArchiveCount">0</span> sparade)
                         </button>
                     </div>
-                    <div class="card-header" style="margin-bottom: 16px;">
-                        <div>
-                            <h2 class="card-title">
-                                <span>📁</span> Pinta Padel Tour – Turneringsarkiv
-                            </h2>
-                            <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
-                                Administrera alla sparade och raderade turneringar
-                            </p>
-                        </div>
+                </div>
+            </section>
 
-                        <!-- Sub-tab switcher mellan Aktiva och Papperskorg -->
-                        <div style="display: flex; gap: 8px;">
-                            <button type="button" class="btn btn-secondary btn-sm active" id="btnShowActiveTournaments" style="border-radius: var(--radius-full);">
-                                Aktiva turneringar (<span id="archiveActiveCount">0</span>)
-                            </button>
-                            <button type="button" class="btn btn-secondary btn-sm" id="btnShowTrashTournaments" style="border-radius: var(--radius-full); color: var(--danger);">
-                                🗑️ Papperskorg (<span id="archiveTrashCount">0</span>)
+            <!-- FLIK 1: SPELARE (VÄNTRUM & LOTTNING) -->
+            <section class="app-view active" id="viewPlayers">
+                <!-- Statusrad med progress -->
+                <div class="status-bar-card">
+                    <div class="status-bar-header">
+                        <span class="status-label">Deltagarlista</span>
+                        <span class="status-count" id="playerCountBadge">0 av 8 anmälda</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" id="playerProgressBar" style="width: 0%;"></div>
+                    </div>
+                </div>
+
+                <!-- 8 Spelarrader -->
+                <div class="roster-card">
+                    <div class="roster-list" id="rosterList">
+                        <!-- Genereras dynamiskt i app.js -->
+                    </div>
+                </div>
+
+                <!-- Länkdelning (Döljs automatiskt vid 8/8 eller när lottningen är gjord) -->
+                <div class="invite-strip" id="inviteStrip">
+                    <button type="button" class="btn btn-secondary btn-sm" id="btnCopyInviteLink">
+                        📋 Kopiera länk
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm btn-whatsapp" id="btnWhatsappInvite">
+                        💬 Dela WhatsApp
+                    </button>
+                </div>
+
+                <!-- Lottningsknapp -->
+                <div class="draw-action-card" id="drawActionCard">
+                    <button type="button" class="btn btn-primary btn-block btn-lg" id="btnDrawSchedule" disabled>
+                        🎲 Lotta spelschema (8 spelare krävs)
+                    </button>
+                    <div class="drawn-status-notice" id="drawnStatusNotice" style="display: none;">
+                        <span class="drawn-badge">✓ Lottning genomförd</span>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btnJumpToMatches">
+                            Öppna spelschema →
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- FLIK 2: MATCHER (OMGÅNGSFOKUS) -->
+            <section class="app-view" id="viewMatches" style="display: none;">
+                <!-- Omgångsväljare (1–7) -->
+                <div class="round-picker-container">
+                    <div class="round-picker" id="roundPicker">
+                        <button type="button" class="round-pill active" data-round="0">1</button>
+                        <button type="button" class="round-pill" data-round="1">2</button>
+                        <button type="button" class="round-pill" data-round="2">3</button>
+                        <button type="button" class="round-pill" data-round="3">4</button>
+                        <button type="button" class="round-pill" data-round="4">5</button>
+                        <button type="button" class="round-pill" data-round="5">6</button>
+                        <button type="button" class="round-pill" data-round="6">7</button>
+                    </div>
+                </div>
+
+                <!-- Notis om turneringen inte är lottad än -->
+                <div class="not-drawn-box" id="notDrawnBox" style="display: none;">
+                    <p>Spelschemat är inte lottat än.</p>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btnGoToPlayersFromMatches">
+                        ← Gå till Spelare för att lotta
+                    </button>
+                </div>
+
+                <!-- Aktiv Omgång: Bana 1 & Bana 2 -->
+                <div class="matches-active-container" id="matchesActiveContainer">
+                    <!-- Bana 1 -->
+                    <div class="court-card" id="courtCard1">
+                        <div class="court-header">
+                            <span class="court-title">BANA 1</span>
+                            <span class="court-match-status" id="courtStatus1">Pågående</span>
+                        </div>
+                        <div class="scoreboard">
+                            <div class="score-team" id="court1Team1Row">
+                                <span class="team-names" id="court1Team1Names">Lag 1</span>
+                                <div class="score-input-wrap">
+                                    <button type="button" class="score-btn score-minus" data-court="0" data-team="1">−</button>
+                                    <input type="number" class="score-input" id="court1Score1" min="0" max="99" value="0" inputmode="numeric">
+                                    <button type="button" class="score-btn score-plus" data-court="0" data-team="1">+</button>
+                                </div>
+                            </div>
+                            <div class="scoreboard-divider">mot</div>
+                            <div class="score-team" id="court1Team2Row">
+                                <span class="team-names" id="court1Team2Names">Lag 2</span>
+                                <div class="score-input-wrap">
+                                    <button type="button" class="score-btn score-minus" data-court="0" data-team="2">−</button>
+                                    <input type="number" class="score-input" id="court1Score2" min="0" max="99" value="0" inputmode="numeric">
+                                    <button type="button" class="score-btn score-plus" data-court="0" data-team="2">+</button>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-block btn-save-score" data-court="0">
+                            Spara Bana 1
+                        </button>
+                    </div>
+
+                    <!-- Bana 2 -->
+                    <div class="court-card" id="courtCard2">
+                        <div class="court-header">
+                            <span class="court-title">BANA 2</span>
+                            <span class="court-match-status" id="courtStatus2">Pågående</span>
+                        </div>
+                        <div class="scoreboard">
+                            <div class="score-team" id="court2Team1Row">
+                                <span class="team-names" id="court2Team1Names">Lag 3</span>
+                                <div class="score-input-wrap">
+                                    <button type="button" class="score-btn score-minus" data-court="1" data-team="1">−</button>
+                                    <input type="number" class="score-input" id="court2Score1" min="0" max="99" value="0" inputmode="numeric">
+                                    <button type="button" class="score-btn score-plus" data-court="1" data-team="1">+</button>
+                                </div>
+                            </div>
+                            <div class="scoreboard-divider">mot</div>
+                            <div class="score-team" id="court2Team2Row">
+                                <span class="team-names" id="court2Team2Names">Lag 4</span>
+                                <div class="score-input-wrap">
+                                    <button type="button" class="score-btn score-minus" data-court="1" data-team="2">−</button>
+                                    <input type="number" class="score-input" id="court2Score2" min="0" max="99" value="0" inputmode="numeric">
+                                    <button type="button" class="score-btn score-plus" data-court="1" data-team="2">+</button>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-block btn-save-score" data-court="1">
+                            Spara Bana 2
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- FLIK 3: TABELL (GLANCEABLE LEADERBOARD) -->
+            <section class="app-view" id="viewTable" style="display: none;">
+                <div class="table-card">
+                    <div class="table-header-meta">
+                        <span class="table-title">Liveresultat</span>
+                        <span class="table-sub" id="tableMetaSub">Sorterat på Poäng → Målskillnad</span>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="leaderboard-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-rank">#</th>
+                                    <th class="col-player">Spelare</th>
+                                    <th class="col-stat text-center">M</th>
+                                    <th class="col-stat text-center">+/-</th>
+                                    <th class="col-points text-right">P</th>
+                                </tr>
+                            </thead>
+                            <tbody id="leaderboardBody">
+                                <!-- Genereras i app.js -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- FLIK 4: MENY (ADMINISTRATION & INSTÄLLNINGAR) -->
+            <section class="app-view" id="viewMenu" style="display: none;">
+                <div class="menu-container">
+
+                    <!-- Sektion: Inloggning & Session -->
+                    <div class="menu-section">
+                        <span class="menu-section-title">Användare</span>
+                        <div class="menu-item-card" id="menuUserCard">
+                            <div class="menu-item-content">
+                                <span class="menu-item-icon" id="menuUserIcon">👤</span>
+                                <div>
+                                    <strong id="menuUserName">Gästläge</strong>
+                                    <span class="menu-item-sub" id="menuUserRole">Visningsläge – Logga in för att rapportera</span>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btnMenuLogin">
+                                Ändra
                             </button>
                         </div>
                     </div>
 
-                    <!-- SEKTION 1: AKTIVA TURNERINGAR -->
-                    <div id="sectionActiveTournaments">
-                        <div class="history-list" id="historyListContainer">
-                            <!-- Aktiva turneringar listas här -->
+                    <!-- Sektion: Dela Turnering -->
+                    <div class="menu-section">
+                        <span class="menu-section-title">Dela Turnering</span>
+                        <div class="menu-item-card">
+                            <div class="menu-item-content">
+                                <span class="menu-item-icon">📢</span>
+                                <div>
+                                    <strong>Inbjudningslänk</strong>
+                                    <span class="menu-item-sub">Skicka till deltagare så de kan se och rapportera</span>
+                                </div>
+                            </div>
+                            <div class="menu-actions-row">
+                                <button type="button" class="btn btn-secondary btn-sm" id="btnMenuCopyLink">Kopiera</button>
+                                <button type="button" class="btn btn-secondary btn-sm btn-whatsapp" id="btnMenuWhatsapp">WhatsApp</button>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- SEKTION 2: PAPPERSKORG (RADERADE TURNERINGAR SOM KAN ÅTERSTÄLLAS) -->
-                    <div id="sectionTrashTournaments" style="display: none;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: rgba(255, 82, 82, 0.08); border: 1px solid rgba(255, 82, 82, 0.2); border-radius: var(--radius-md); margin-bottom: 16px;">
-                            <span style="font-size: 13px; color: var(--text-secondary);">
-                                ℹ️ Raderade turneringar sparas här och kan <strong>återställas när som helst</strong> med ett klick.
-                            </span>
-                            <button type="button" class="btn btn-danger-outline btn-sm" id="btnEmptyTrash">
-                                🗑️ Töm papperskorgen
+                    <!-- Sektion: Turneringsarkiv & Papperskorg -->
+                    <div class="menu-section">
+                        <span class="menu-section-title">Sparade Turneringar</span>
+                        <div class="menu-item-card" id="menuArchiveCard">
+                            <div class="menu-item-content">
+                                <span class="menu-item-icon">📁</span>
+                                <div>
+                                    <strong>Turneringsarkiv</strong>
+                                    <span class="menu-item-sub" id="menuArchiveCountText">0 sparade turneringar</span>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btnOpenArchiveModal">
+                                Öppna
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Sektion: Turnering & Fara -->
+                    <div class="menu-section">
+                        <span class="menu-section-title">Administration</span>
+                        <div class="menu-item-card">
+                            <div class="menu-item-content">
+                                <span class="menu-item-icon">➕</span>
+                                <div>
+                                    <strong>Ny turnering</strong>
+                                    <span class="menu-item-sub">Skapa en ny tom turnering</span>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btnMenuNewTourney">
+                                Skapa
                             </button>
                         </div>
 
-                        <div class="history-list" id="trashListContainer">
-                            <!-- Raderade turneringar som kan tas tillbaka visas här -->
+                        <div class="menu-item-card danger-card">
+                            <div class="menu-item-content">
+                                <span class="menu-item-icon">🗑️</span>
+                                <div>
+                                    <strong style="color: var(--danger);">Radera aktuell turnering</strong>
+                                    <span class="menu-item-sub">Flyttas till papperskorgen (kan ångras)</span>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-danger-sm" id="btnMenuDeleteTourney">
+                                Radera
+                            </button>
                         </div>
                     </div>
+
                 </div>
             </section>
 
         </main>
 
-        <!-- Startskärm: Visas när ingen turnering är vald eller när en turnering har raderats -->
-        <section id="emptyStateContainer" class="start-screen" style="display: none;">
-            <div class="card start-card">
-                <div class="start-icon">🎾</div>
-                <h2 class="start-title">Välkommen till Pinta Padel Tour</h2>
-                <p class="start-subtitle">
-                    Turneringsmotor, lottning och liveresultat för 8 spelare på 2 banor.
-                </p>
-
-                <div class="start-actions">
-                    <button class="btn btn-primary btn-lg" id="btnEmptyCreate">
-                        <span>➕</span> Skapa ny turnering
-                    </button>
-                    <button class="btn btn-secondary btn-lg" id="btnEmptyShowArchive" style="display: none;">
-                        <span>📁</span> Turneringsarkiv (<span id="emptyStateArchiveCount">0</span>)
-                    </button>
-                </div>
-
-                <div class="start-features">
-                    <div class="start-feature-item">
-                        <span class="feature-icon">⚡</span>
-                        <div class="feature-text">
-                            <strong>100% Utan Mail</strong>
-                            <span>Deltagarna fyller bara i sitt namn och får en personlig PIN-kod.</span>
-                        </div>
-                    </div>
-                    <div class="start-feature-item">
-                        <span class="feature-icon">📢</span>
-                        <div class="feature-text">
-                            <strong>Dela Direkt</strong>
-                            <span>Kort länk för Messenger, WhatsApp eller SMS.</span>
-                        </div>
-                    </div>
-                    <div class="start-feature-item">
-                        <span class="feature-icon">🎲</span>
-                        <div class="feature-text">
-                            <strong>Lottning &amp; Live-tabell</strong>
-                            <span>7 omgångar lottas med ett klick och tabellen uppdateras i realtid.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
+        <!-- 3. FIXED BOTTOM NAVIGATION BAR (iOS NATIVE APP-KÄNSLA) -->
+        <nav class="bottom-nav" id="bottomNav">
+            <button type="button" class="nav-tab-btn active" data-tab="viewPlayers" id="navBtnPlayers">
+                <span class="nav-icon">👥</span>
+                <span class="nav-label">Spelare</span>
+                <span class="nav-badge" id="navPlayerBadge">0/8</span>
+            </button>
+            <button type="button" class="nav-tab-btn" data-tab="viewMatches" id="navBtnMatches">
+                <span class="nav-icon">🎾</span>
+                <span class="nav-label">Matcher</span>
+            </button>
+            <button type="button" class="nav-tab-btn" data-tab="viewTable" id="navBtnTable">
+                <span class="nav-icon">🏆</span>
+                <span class="nav-label">Tabell</span>
+            </button>
+            <button type="button" class="nav-tab-btn" data-tab="viewMenu" id="navBtnMenu">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-label">Meny</span>
+            </button>
+        </nav>
 
     </div>
 
-    <!-- TOAST CONTAINER FÖR ÅNGRA-RADERING -->
-    <div class="toast-container" id="toastContainer"></div>
+    <!-- 4. MODALER -->
 
-    <!-- =========================================================================
-         MODAL 1: SKAPA NY TURNERING (INGA SPELARE FRÅN START)
-         ========================================================================= -->
-    <div class="modal-backdrop" id="modalNewTournament" role="dialog" aria-modal="true" aria-labelledby="newTourneyTitle">
-        <div class="modal-box">
+    <!-- MODAL: SKAPA NY TURNERING -->
+    <div class="modal-overlay" id="modalNewTourney" style="display: none;">
+        <div class="modal-card">
             <div class="modal-header">
-                <h3 class="modal-title" id="newTourneyTitle">🎾 Skapa Ny Pinta Padel Tour Turnering</h3>
-                <button type="button" class="modal-close" aria-label="Stäng modal">&times;</button>
+                <h3 class="modal-title">Skapa ny turnering</h3>
+                <button type="button" class="btn-close-modal" id="btnCloseNewTourneyModal">✕</button>
             </div>
-
-            <form id="formNewTournament">
+            <form id="formNewTourney">
                 <div class="form-group">
-                    <label class="form-label" for="inputTourneyName">Turneringens Namn</label>
-                    <input type="text" id="inputTourneyName" class="form-control" placeholder="T.ex. Pinta Padel Tour – Sala" required>
+                    <label class="form-label" for="newTourneyName">Turneringsnamn</label>
+                    <input type="text" class="form-input" id="newTourneyName" placeholder="T.ex. Fredagspadel" required autocomplete="off">
                 </div>
-
                 <div class="form-group">
-                    <label class="form-label">Turneringsformat</label>
-                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 6px;">
-                        <label style="display: flex; align-items: flex-start; gap: 10px; padding: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer;">
-                            <input type="radio" name="tourneyFormat" value="option1" checked style="margin-top: 3px; accent-color: var(--primary);">
-                            <div>
-                                <strong style="color: #fff; font-size: 14px; display: block;">Alternativ 1: Lag-serie (7 omgångar × 3 matcher)</strong>
-                                <span style="font-size: 12.5px; color: var(--text-secondary); display: block; margin-top: 2px;">
-                                    I varje omgång bildas 4 lag (2 i varje). Lagen möter varandra i seriespel (3 matcher per lag, 6 per omgång). Nästa omgång byter man partner så att alla spelar en omgång med varje medspelare (21 matcher per spelare).
-                                </span>
-                            </div>
-                        </label>
-
-                        <label style="display: flex; align-items: flex-start; gap: 10px; padding: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer;">
-                            <input type="radio" name="tourneyFormat" value="option2" style="margin-top: 3px; accent-color: var(--primary);">
-                            <div>
-                                <strong style="color: #fff; font-size: 14px; display: block;">Alternativ 2: Bana-rotation (4 på samma bana)</strong>
-                                <span style="font-size: 12.5px; color: var(--text-secondary); display: block; margin-top: 2px;">
-                                    Samma 4 spelar på samma bana hela omgången. På banan spelas 3 matcher så att man spelar en match med varje annan spelare på banan. Totalt 7 omgångar.
-                                </span>
-                            </div>
-                        </label>
-                    </div>
+                    <label class="form-label" for="newTourneyOrg">Arrangörens namn</label>
+                    <input type="text" class="form-input" id="newTourneyOrg" placeholder="Ditt förnamn" required autocomplete="name">
                 </div>
-
                 <div class="form-group">
-                    <label class="form-label" for="selectPointSystem">Poängsystem per match (Standard: Game-räkning)</label>
-                    <select id="selectPointSystem" class="form-control form-select">
-                        <option value="games" selected>Game-räkning (Vunna game, t.ex. 6-4, 6-2) – Standard</option>
-                        <option value="points32">32 poäng per match (Klassisk americano-räkning)</option>
-                        <option value="points24">24 poäng per match (Snabbare tempo)</option>
-                    </select>
-                </div>
-
-                <!-- Arrangörsidentifiering -->
-                <div class="form-group" style="padding: 14px; background: rgba(0, 230, 118, 0.08); border: 1px solid rgba(0, 230, 118, 0.25); border-radius: var(--radius-md);">
-                    <div style="font-weight: 800; color: var(--primary); font-size: 13.5px; margin-bottom: 8px;">
-                        👑 Vem är arrangör för turneringen?
-                    </div>
-                    <div>
-                        <label class="form-label" for="inputOrganizerName" style="font-size: 12px;">Ditt Namn <span style="color:var(--danger)">*</span></label>
-                        <input type="text" id="inputOrganizerName" class="form-control" placeholder="Ditt namn" required>
-                    </div>
-                    
-                    <label style="display: flex; align-items: center; gap: 10px; margin-top: 12px; cursor: pointer; user-select: none;">
-                        <input type="checkbox" id="checkOrganizerPlays" checked style="width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer;">
-                        <span style="font-size: 13px; font-weight: 700; color: #fff;">
-                            🎾 Jag ska också spela i turneringen (Lägg till mig på Plats 1 direkt)
-                        </span>
+                    <label class="form-checkbox-label">
+                        <input type="checkbox" id="newTourneyOrgPlays" checked>
+                        <span>Arrangören spelar själv (Plats 1)</span>
                     </label>
                 </div>
-
-                <!-- Info om arrangörsskap och inbjudningar -->
-                <div style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.25); border-radius: var(--radius-md); padding: 14px; margin-bottom: 20px;">
-                    <div style="font-weight: 700; color: var(--accent-blue); font-size: 13.5px; margin-bottom: 4px;">
-                        ℹ️ Automatisk arrangörsbehörighet på denna enhet
-                    </div>
-                    <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.4;">
-                        Du blir automatiskt stämplad som turneringens arrangör på denna webbläsare. Du får en inbjudningslänk att skicka till dina vänner på Messenger/WhatsApp, samt en personlig arrangörslänk om du vill styra från en iPad eller dator!
-                    </div>
-                </div>
-
-                <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                    <button type="button" class="btn btn-secondary btn-modal-cancel">Avbryt</button>
-                    <button type="submit" class="btn btn-primary">
-                        <span>✨</span> Skapa turnering
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- =========================================================================
-         MODAL 2: MATA IN RESULTAT
-         ========================================================================= -->
-    <div class="modal-backdrop" id="modalScore" role="dialog" aria-modal="true" aria-labelledby="modalMatchTitle">
-        <div class="modal-box">
-            <div class="modal-header">
-                <h3 class="modal-title" id="modalMatchTitle">Matchresultat</h3>
-                <button type="button" class="modal-close" aria-label="Stäng modal">&times;</button>
-            </div>
-
-            <!-- Snabbknappar för poäng -->
-            <div style="text-align: center; margin-bottom: 8px;">
-                <span style="font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;" id="modalQuickScoresTitle">Snabbval (Game-räkning)</span>
-            </div>
-            <div class="quick-scores" id="modalQuickScoresContainer">
-                <button type="button" class="btn-quick-score" data-s1="6" data-s2="0">6 - 0</button>
-                <button type="button" class="btn-quick-score" data-s1="6" data-s2="2">6 - 2</button>
-                <button type="button" class="btn-quick-score" data-s1="6" data-s2="3">6 - 3</button>
-                <button type="button" class="btn-quick-score" data-s1="6" data-s2="4">6 - 4</button>
-                <button type="button" class="btn-quick-score" data-s1="7" data-s2="5">7 - 5</button>
-                <button type="button" class="btn-quick-score" data-s1="7" data-s2="6">7 - 6</button>
-            </div>
-
-            <div class="score-entry-container">
-                <!-- Lag 1 -->
-                <div class="score-stepper">
-                    <div class="team-label" id="modalTeam1Name">Lag 1</div>
-                    <input type="number" id="inputScore1" class="score-input-large" min="0" max="99" value="6">
-                    <div class="stepper-btns">
-                        <button type="button" class="btn-step" id="btnTeam1Minus" aria-label="Minska lag 1">−</button>
-                        <button type="button" class="btn-step" id="btnTeam1Plus" aria-label="Öka lag 1">+</button>
-                    </div>
-                </div>
-
-                <div class="vs-badge" style="font-size: 16px; padding: 8px 12px;">VS</div>
-
-                <!-- Lag 2 -->
-                <div class="score-stepper">
-                    <div class="team-label" id="modalTeam2Name">Lag 2</div>
-                    <input type="number" id="inputScore2" class="score-input-large" min="0" max="99" value="0">
-                    <div class="stepper-btns">
-                        <button type="button" class="btn-step" id="btnTeam2Minus" aria-label="Minska lag 2">−</button>
-                        <button type="button" class="btn-step" id="btnTeam2Plus" aria-label="Öka lag 2">+</button>
-                    </div>
-                </div>
-            </div>
-
-            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
-                <button type="button" class="btn btn-secondary btn-modal-cancel">Avbryt</button>
-                <button type="button" class="btn btn-primary" id="btnSaveScore">
-                    <span>💾</span> Spara resultat
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- =========================================================================
-         MODAL 3: INBJUDAN & DELNING (MESSENGER, MAIL, WHATSAPP)
-         ========================================================================= -->
-    <div class="modal-backdrop" id="modalShare" role="dialog" aria-modal="true" aria-labelledby="modalShareTitle">
-        <div class="modal-box">
-            <div class="modal-header">
-                <h3 class="modal-title" id="modalShareTitle">📢 Bjud in till Pinta Padel Tour</h3>
-                <button type="button" class="modal-close" aria-label="Stäng modal">&times;</button>
-            </div>
-
-            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 16px;">
-                Välj hur du vill skicka inbjudan till dina 8 spelare. De klickar på länken och fyller bara i sitt namn för att ta en plats.
-            </p>
-
-            <!-- Snabbknappar för direktutskick -->
-            <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
-                <button type="button" class="btn btn-messenger" id="modalBtnMessenger" style="width: 100%;">
-                    <span>💬</span> Skicka inbjudan i Messenger
-                </button>
-                <button type="button" class="btn btn-whatsapp" id="modalBtnWhatsapp" style="width: 100%;">
-                    <span>📱</span> Skicka i WhatsApp
-                </button>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label" for="shareUrlInput">Kort inbjudningslänk till spelarna</label>
-                <div style="display: flex; gap: 8px;">
-                    <input type="text" id="shareUrlInput" class="form-control" readonly style="font-size: 12.5px; color: var(--accent-blue); background: var(--bg-main);">
-                    <button type="button" class="btn btn-primary" id="btnCopyShareUrl" style="white-space: nowrap;">
-                        Kopiera länk
-                    </button>
-                </div>
-                <button type="button" class="btn btn-secondary btn-sm" id="btnModalCopyInviteText" style="width: 100%; margin-top: 8px;">
-                    <span>✉️</span> Kopiera färdig inbjudningstext med turneringsnamn & länk
-                </button>
-            </div>
-
-            <!-- Arrangörsåtkomst (för arrangören att öppna på annan enhet) -->
-            <div id="modalOrganizerAccessBox" style="margin-top: 18px; padding: 14px; background: rgba(0, 230, 118, 0.08); border: 1px dashed rgba(0, 230, 118, 0.35); border-radius: var(--radius-md);">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 8px;">
-                    <div style="font-weight: 800; font-size: 13px; color: var(--primary);">
-                        👑 Din Arrangörsåtkomst (För styrning från iPad/dator)
-                    </div>
-                    <span id="badgeOrganizerCode" style="font-size: 12px; font-weight: 800; background: var(--bg-card); padding: 3px 8px; border-radius: var(--radius-full); border: 1px solid var(--primary); color: #fff;">
-                        Kod: PT-84
-                    </span>
-                </div>
-                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
-                    Skicka inte denna till deltagarna. Använd denna länk om du vill ha full arrangörsbehörighet på en annan telefon eller skärm.
-                </p>
-                <button type="button" class="btn btn-secondary btn-sm" id="btnCopyAdminUrl" style="width: 100%;">
-                    <span>🔗</span> Kopiera din arrangörslänk
-                </button>
-            </div>
-
-            <div style="display: flex; justify-content: flex-end; margin-top: 14px;">
-                <button type="button" class="btn btn-secondary btn-modal-cancel">Stäng</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- =========================================================================
-         MODAL 4: REGISTRERA ELLER TILLDELA SPELARE (HELT UTAN MAIL)
-         ========================================================================= -->
-    <div class="modal-backdrop" id="modalManualPlayer" role="dialog" aria-modal="true" aria-labelledby="manualPlayerTitle">
-        <div class="modal-box">
-            <div class="modal-header">
-                <h3 class="modal-title" id="manualPlayerTitle">🎾 Lägg till Spelare</h3>
-                <button type="button" class="modal-close" aria-label="Stäng modal">&times;</button>
-            </div>
-
-            <p style="font-size: 13.5px; color: var(--text-secondary); margin-bottom: 16px;">
-                Fyll i spelarens namn för att tilldela platsen. Appen skapar automatiskt en personlig 4-siffrig kod.
-            </p>
-
-            <!-- Om det finns tidigare registrerade spelare i systemet som inte är i denna turnering -->
-            <div id="boxExistingRegisteredPlayers" style="display: none; padding: 14px; background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.25); border-radius: var(--radius-md); margin-bottom: 18px;">
-                <label class="form-label" for="selectExistingPlayer" style="color: var(--accent-blue);">Välj bland tidigare spelare:</label>
-                <div style="display: flex; gap: 8px; margin-top: 6px;">
-                    <select id="selectExistingPlayer" class="form-control form-select">
-                        <!-- fylls dynamiskt från appState.registeredPlayers -->
-                    </select>
-                    <button type="button" class="btn btn-primary" id="btnAssignExistingPlayer" style="white-space: nowrap;">
-                        Välj denna
-                    </button>
-                </div>
-                <div style="text-align: center; margin: 12px 0 2px; font-size: 11.5px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">
-                    — ELLER LÄGG TILL NYTT NAMN NEDAN —
-                </div>
-            </div>
-
-            <form id="formManualPlayer">
-                <input type="hidden" id="manualSlotIndex" value="">
-
                 <div class="form-group">
-                    <label class="form-label" for="manualPlayerName">Spelarens Namn <span style="color: var(--danger);">*</span></label>
-                    <input type="text" id="manualPlayerName" class="form-control" placeholder="T.ex. Johan Bergman" required>
-                    <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 4px;">
-                        Ingen e-post behövs. Spelaren tilldelas en personlig 4-siffrig kod direkt.
-                    </span>
+                    <label class="form-label" for="newTourneyFormat">Format</label>
+                    <select class="form-select" id="newTourneyFormat">
+                        <option value="option1" selected>Lag-serie (7 omgångar, alla möter alla)</option>
+                        <option value="option2">Bana-rotation (4 spelare per bana)</option>
+                    </select>
                 </div>
-
-                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
-                    <button type="button" class="btn btn-secondary btn-modal-cancel">Avbryt</button>
-                    <button type="submit" class="btn btn-primary">Lägg till &amp; Slumpa kod 🎾</button>
+                <div class="form-group">
+                    <label class="form-label" for="newTourneyPoints">Poängsystem</label>
+                    <select class="form-select" id="newTourneyPoints">
+                        <option value="games" selected>Game-räkning (Standard padel)</option>
+                        <option value="americano32">Americano (32 poäng)</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary btn-block">Skapa turnering</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- =========================================================================
-         MODAL 5: BEKRÄFTELSE & PERSONLIG PIN-KOD (VISAS DIREKT & SPARAS AUTOMATISKT)
-         ========================================================================= -->
-    <div class="modal-backdrop" id="modalPinConfirmation" role="dialog" aria-modal="true" aria-labelledby="pinModalTitle">
-        <div class="modal-box" style="max-width: 460px; text-align: center;">
-            <div style="font-size: 48px; margin-bottom: 8px;">🎾</div>
-            <h3 class="modal-title" id="pinModalTitle" style="font-size: 22px; margin-bottom: 6px;">Du har tagit en plats!</h3>
-            <p style="color: var(--text-secondary); font-size: 14.5px; margin-bottom: 20px;" id="pinModalSubtitle">
-                Välkommen till turneringen, <strong id="pinConfirmPlayerName" style="color: #fff;">Spelare</strong>! Du har <span id="pinConfirmSlotBadge" style="color: var(--primary); font-weight: 800;">Plats 1 av 8</span>.
-            </p>
+    <!-- MODAL: ANMÄL SPELARE / TA PLATS -->
+    <div class="modal-overlay" id="modalTakeSlot" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 class="modal-title" id="takeSlotModalTitle">Ta plats i turneringen</h3>
+                <button type="button" class="btn-close-modal" id="btnCloseTakeSlotModal">✕</button>
+            </div>
+            <form id="formTakeSlot">
+                <input type="hidden" id="takeSlotIndex" value="">
+                <div class="form-group">
+                    <label class="form-label" for="takeSlotPlayerName">Spelarens namn</label>
+                    <input type="text" class="form-input" id="takeSlotPlayerName" placeholder="Förnamn eller smeknamn" required autocomplete="name">
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary btn-block">Boka plats</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
+    <!-- MODAL: PIN-BEKRÄFTELSE -->
+    <div class="modal-overlay" id="modalPinConfirm" style="display: none;">
+        <div class="modal-card text-center">
+            <div class="pin-success-icon">✓</div>
+            <h3 class="modal-title" id="pinConfirmTitle">Plats bokad!</h3>
+            <p class="modal-desc" id="pinConfirmDesc">
+                Välkommen till turneringen, <strong id="pinConfirmName">Spelare</strong>!
+            </p>
             <div class="pin-display-box">
-                <div style="font-size: 12px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px;">
-                    Din personliga inloggningskod
-                </div>
-                <div class="pin-code-digits" id="pinConfirmCodeDisplay">
-                    4218
-                </div>
-                <div style="font-size: 12px; color: var(--text-secondary);">
-                    4-siffrig kod för inloggning
-                </div>
+                <span class="pin-display-label">Din personliga PIN-kod:</span>
+                <span class="pin-display-code" id="pinConfirmCode">0000</span>
             </div>
-
-            <div style="background: rgba(0, 230, 118, 0.08); border: 1px solid rgba(0, 230, 118, 0.25); border-radius: var(--radius-md); padding: 14px; text-align: left; margin-bottom: 22px;">
-                <div style="font-weight: 800; color: var(--primary); font-size: 13.5px; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                    <span>✅</span> Sparad automatiskt i din telefon!
-                </div>
-                <p style="font-size: 12.5px; color: var(--text-secondary); margin: 0; line-height: 1.45;">
-                    Du är redan inloggad på denna telefon. Du kan direkt se spelschema och rapportera dina matchresultat när lottningen är klar.
-                </p>
-                <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 8px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 6px;">
-                    💡 <em>Om du byter telefon eller använder en annan webbläsare anger du ditt namn och denna kod för att logga in.</em>
-                </div>
-            </div>
-
-            <button type="button" class="btn btn-primary btn-lg" id="btnPinConfirmDone" style="width: 100%;">
-                Toppen, ta mig till turneringen! 🎾
-            </button>
+            <p class="pin-tip">
+                Spara koden för att logga in på din mobil och rapportera matchresultat.
+            </p>
+            <button type="button" class="btn btn-primary btn-block" id="btnClosePinConfirm">Klar</button>
         </div>
     </div>
 
-    <!-- =========================================================================
-         MODAL 6: LOGGA IN SOM ARRANGÖR ELLER SPELARE
-         ========================================================================= -->
-    <div class="modal-backdrop" id="modalAuth" role="dialog" aria-modal="true" aria-labelledby="modalAuthTitle">
-        <div class="modal-box" style="max-width: 540px;">
+    <!-- MODAL: LOGGA IN / BYT ANVÄNDARE -->
+    <div class="modal-overlay" id="modalAuth" style="display: none;">
+        <div class="modal-card">
             <div class="modal-header">
-                <h3 class="modal-title" id="modalAuthTitle">👤 Inloggning – Pinta Padel Tour</h3>
-                <button type="button" class="modal-close" aria-label="Stäng modal">&times;</button>
+                <h3 class="modal-title">Logga in</h3>
+                <button type="button" class="btn-close-modal" id="btnCloseAuthModal">✕</button>
             </div>
-
-            <div id="authNoticeGuestPrompt" style="display: none; padding: 12px 14px; background: rgba(255, 183, 3, 0.12); border: 1px solid rgba(255, 183, 3, 0.35); border-radius: var(--radius-md); margin-bottom: 16px; font-size: 13.5px; color: #fff;">
-                🔒 <strong>Inloggning krävs:</strong> Tabell och spelschema kan ses fritt av alla, men du måste logga in som arrangör eller registrerad spelare för att kunna ändra eller rapportera resultat.
-            </div>
-
-            <!-- Inloggad status & Logga ut-knapp -->
-            <div id="authCurrentUserInfo" style="display: none; padding: 14px; background: rgba(0, 230, 118, 0.08); border: 1px solid rgba(0, 230, 118, 0.25); border-radius: var(--radius-md); margin-bottom: 16px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <div style="font-size: 14px; font-weight: 800; color: var(--primary);" id="authLoggedInStatusText">Inloggad</div>
-                        <div style="font-size: 12px; color: var(--text-secondary);" id="authLoggedInSubText">Roll: Arrangör</div>
-                    </div>
-                    <button type="button" class="btn btn-danger-outline btn-sm" id="btnLogoutUser">
-                        Logga ut 🚪
-                    </button>
-                </div>
-            </div>
-
-            <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 18px;">
-                Välj hur du vill logga in för att administrera turneringen eller rapportera resultat:
-            </p>
-
-            <!-- VÄLJ ROLL (ARRANGÖR ELLER SPELARE) -->
-            <div class="auth-mode-selector">
-                <div class="auth-role-card selected" id="cardRoleAdmin" data-role="admin">
-                    <div class="auth-role-icon">👔</div>
-                    <div class="auth-role-title">Arrangör (Admin)</div>
-                    <div class="auth-role-desc">Full behörighet att skapa och radera turneringar, lotta spelschema och ändra alla resultat.</div>
-                </div>
-
-                <div class="auth-role-card" id="cardRolePlayer" data-role="player">
-                    <div class="auth-role-icon">🎾</div>
-                    <div class="auth-role-title">Spelare</div>
-                    <div class="auth-role-desc">För registrerade deltagare. Logga in för att rapportera och ändra resultat i dina matcher.</div>
-                </div>
-            </div>
-
             <form id="formAuth">
-                <input type="hidden" id="authRoleSelected" value="admin">
-
-                <!-- Sektion för spelare att snabbvälja registrerad profil -->
-                <div class="form-group" id="authPlayerQuickSelectGroup" style="display: none;">
-                    <label class="form-label" for="selectAuthRegisteredPlayer">Välj bland registrerade spelare:</label>
-                    <select id="selectAuthRegisteredPlayer" class="form-control form-select">
-                        <option value="">-- Välj din profil eller fyll i nedan --</option>
-                    </select>
-                </div>
-
                 <div class="form-group">
-                    <label class="form-label" for="authUserName">Ditt Namn</label>
-                    <input type="text" id="authUserName" class="form-control" placeholder="Ditt namn" required>
+                    <label class="form-label" for="authCodeInput">Arrangörskod eller Spelar-PIN</label>
+                    <input type="text" class="form-input text-center" id="authCodeInput" placeholder="T.ex. PT-42 eller 4 siffror" required autocomplete="off">
+                    <span class="form-hint">Arrangörskod (PT-xx) eller din 4-siffriga spelarkod.</span>
                 </div>
-
-                <div class="form-group" id="authPlayerPinGroup" style="display: none;">
-                    <label class="form-label" for="authPlayerPin">Din 4-siffriga inloggningskod</label>
-                    <input type="password" id="authPlayerPin" class="form-control" placeholder="••••" maxlength="6" inputmode="numeric">
-                    <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 4px;">
-                        Koden du fick på skärmen när du tog en plats (sparas automatiskt i din telefon).
-                    </span>
-                </div>
-
-                <div class="form-group" id="authPinGroup">
-                    <label class="form-label" for="authAdminPin">Arrangörskod</label>
-                    <input type="password" id="authAdminPin" class="form-control" placeholder="Ange arrangörskod" autocomplete="current-password">
-                    <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 4px;">
-                        👑 Skaparen av turneringen är alltid arrangör på sin egen enhet. För att styra från en ny enhet, ange arrangörskod.
-                    </span>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px; flex-wrap: wrap; gap: 10px;">
-                    <button type="button" class="btn btn-secondary btn-sm" id="btnContinueAsGuest">
-                        Fortsätt som Gäst (Bara titta)
-                    </button>
-                    <div style="display: flex; gap: 10px;">
-                        <button type="button" class="btn btn-secondary btn-modal-cancel">Avbryt</button>
-                        <button type="submit" class="btn btn-primary" id="btnSubmitAuth">
-                            Logga in som Arrangör 👔
-                        </button>
-                    </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary btn-block">Logga in</button>
+                    <button type="button" class="btn btn-secondary btn-block" id="btnAuthLogout" style="display: none;">Logga ut (Gästläge)</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- =========================================================================
-         MODAL 7: VINNARCEREMONI (PODIUM & KONFETTI)
-         ========================================================================= -->
-    <div class="modal-backdrop" id="modalPodium" role="dialog" aria-modal="true" aria-labelledby="podiumWinnerName">
-        <div class="modal-box podium-modal">
-            <div class="podium-trophy">🏆</div>
-            <h3 style="font-size: 16px; color: var(--primary); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 800; margin-bottom: 6px;">Pinta Padel Tour – Mästare!</h3>
-            <div class="podium-winner-name" id="podiumWinnerName">Spelarnamn</div>
-            <div class="podium-winner-score" id="podiumWinnerScore">0 poäng · 0 vinster</div>
-            
-            <p style="color: var(--text-secondary); font-size: 14.5px; margin-bottom: 24px;">
-                Grattis till en fantastisk insats! Alla omgångar är nu färdigspelade och resultaten är sparade i arkivet.
-            </p>
-
-            <button type="button" class="btn btn-primary btn-modal-cancel" style="padding: 12px 28px;">
-                Se fullständig tabell
-            </button>
+    <!-- MODAL: TURNERINGSARKIV -->
+    <div class="modal-overlay" id="modalArchive" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 class="modal-title">Turneringsarkiv</h3>
+                <button type="button" class="btn-close-modal" id="btnCloseArchiveModal">✕</button>
+            </div>
+            <div class="archive-section">
+                <span class="archive-sub-title">Aktiva & Sparade</span>
+                <div class="archive-list" id="archiveActiveList">
+                    <!-- Fylls i app.js -->
+                </div>
+            </div>
+            <div class="archive-section" style="margin-top: 20px;">
+                <div class="archive-trash-header">
+                    <span class="archive-sub-title">Papperskorg</span>
+                    <button type="button" class="btn-text-danger" id="btnEmptyTrash">Töm papperskorg</button>
+                </div>
+                <div class="archive-list" id="archiveTrashList">
+                    <!-- Fylls i app.js -->
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Konfetti-canvas -->
-    <canvas id="confettiCanvas" style="position: fixed; inset: 0; pointer-events: none; z-index: 999;"></canvas>
+    <!-- 5. TOAST CONTAINER (Ångra, kopieringsnotiser) -->
+    <div class="toast-container" id="toastContainer"></div>
 
-    <!-- Paho MQTT för realtidssynkning mellan olika mobiler över internet -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
-
-    <!-- Huvudskript -->
-    <script src="./app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>

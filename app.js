@@ -1,366 +1,101 @@
 /**
- * PINTA PADEL TOUR – HUVUDAPPLIKATION
- * Inbjudningslänkar, inloggning (Arrangör vs Spelare), papperskorg & återställning av turneringar, manuell lottning & realtidssynk
+ * PINTA PADEL TOUR – HUVUDMOTOR
+ * Minimalistisk, serverlös padelturnering för 8 spelare på 2 banor.
+ * Byggd enligt direktiven i skill:en frontend-design.
  */
 
 (function () {
     'use strict';
 
     // =========================================================================
-    // 1. STATE & KONFIGURATION
+    // 1. KONSTANTER & TILLSTÅND (STATE)
     // =========================================================================
 
     const STORAGE_KEY = 'pinta_padel_data_v2';
     const AUTH_KEY = 'pinta_padel_user_v2';
-    const PLAYERS_KEY = 'pinta_padel_registered_players_v2';
-    const ADMIN_KEYS_KEY = 'pinta_padel_admin_keys_v2';
+    const ADMIN_KEYS_KEY = 'pinta_padel_adminkeys_v2';
 
-    let appState = {
-        currentUser: null,           // { id, name, pin, role: 'admin'|'player' }
+    const appState = {
+        tournaments: [],
+        deletedTournaments: [],
         activeTournamentId: null,
-        tournaments: [],             // Aktiva turneringar
-        deletedTournaments: [],      // Papperskorg (kan återställas!)
-        registeredPlayers: [],       // Spelarregister (alla registrerade deltagare)
+        currentUser: null,       // { id, name, role: 'admin'|'player', pin, tourneyKey }
+        currentRoundIndex: 0,    // 0..6
         cloudConnected: false
     };
 
-    /**
-     * Smart arrangörsidentifiering:
-     * - Skaparen har admin-nyckeln sparad i localStorage (ingen PIN-kod behövs).
-     * - På andra enheter kan arrangören låsa upp via arrangörslänk (?key=...) eller arrangörskod (PT-xx).
-     */
-    function getAdminKeys() {
-        try {
-            const raw = localStorage.getItem(ADMIN_KEYS_KEY);
-            return raw ? JSON.parse(raw) : {};
-        } catch (e) {
-            return {};
-        }
-    }
-
-    function saveAdminKeyForTourney(tourneyId, key) {
-        if (!tourneyId || !key) return;
-        try {
-            const keys = getAdminKeys();
-            keys[tourneyId] = key;
-            localStorage.setItem(ADMIN_KEYS_KEY, JSON.stringify(keys));
-        } catch (e) {
-            console.error('Kunde inte spara adminnyckel:', e);
-        }
-    }
-
-    function isUserOrganizerOf(tourney) {
-        if (!tourney) return false;
-
-        // Om användaren aktivt har valt rollen 'player', agerar de som spelare (ej arrangör)!
-        if (appState.currentUser && appState.currentUser.role === 'player') {
-            return false;
-        }
-
-        // 1. Om inloggad som admin:
-        if (appState.currentUser && appState.currentUser.role === 'admin') {
-            // Master Admin eller inloggad med namnet "Ulrik" som admin
-            if (appState.currentUser.isMasterAdmin || 
-                (appState.currentUser.name && appState.currentUser.name.toLowerCase() === 'ulrik')) {
-                return true;
-            }
-            if (tourney.organizer && tourney.organizer.name && appState.currentUser.name) {
-                if (tourney.organizer.name.toLowerCase() === appState.currentUser.name.toLowerCase()) {
-                    return true;
-                }
-            }
-            if (tourney.adminKey && appState.currentUser.tourneyKey === tourney.adminKey) {
-                return true;
-            }
-            const keys = getAdminKeys();
-            if (tourney.adminKey && keys[tourney.id] === tourney.adminKey) {
-                return true;
-            }
-        }
-
-        // 2. Om inte inloggad alls (gäst) men webbläsaren har sparad adminnyckel:
-        if (!appState.currentUser) {
-            const keys = getAdminKeys();
-            if (tourney.adminKey && keys[tourney.id] === tourney.adminKey) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    let currentSelectedRound = 0;
-    let currentEditingMatch = null;
     let mqttClient = null;
     let broadcastChannel = null;
     let undoToastTimer = null;
+    let audioCtx = null;
+
+    // Standard balanserad Americano-matris för 8 spelare (7 omgångar)
+    // Varje spelare spelar med alla andra 7 exakt en gång och möter alla två gånger.
+    const SCHEDULE_MATRIX = [
+        // Omgång 1
+        { court1: [[0, 1], [2, 3]], court2: [[4, 5], [6, 7]] },
+        // Omgång 2
+        { court1: [[0, 2], [4, 6]], court2: [[1, 3], [5, 7]] },
+        // Omgång 3
+        { court1: [[0, 3], [5, 6]], court2: [[1, 2], [4, 7]] },
+        // Omgång 4
+        { court1: [[0, 4], [1, 5]], court2: [[2, 6], [3, 7]] },
+        // Omgång 5
+        { court1: [[0, 5], [2, 7]], court2: [[1, 6], [3, 4]] },
+        // Omgång 6
+        { court1: [[0, 6], [1, 7]], court2: [[2, 4], [3, 5]] },
+        // Omgång 7
+        { court1: [[0, 7], [3, 6]], court2: [[1, 4], [2, 5]] }
+    ];
 
     // =========================================================================
-    // 2. TURNERINGSGENERATORER (LOTTNING & SPELORDNING FÖR 8 SPELARE)
+    // 2. LJUDMOTOR (WEB AUDIO API - INGA EXTERNA MP3-FILER)
     // =========================================================================
 
-    /**
-     * Alternativ 1: Lag-serie
-     * 7 omgångar. I varje omgång bildas 4 lag (2 spelare i varje).
-     * De 4 lagen möter varandra i ett seriespel (3 matcher per lag, 6 matcher totalt per omgång).
-     * Nästa omgång byter man partner så att alla spelar en omgång med varje medspelare (21 matcher per spelare).
-     */
-    function generateScheduleOption1(playerNames) {
-        const rounds = [];
-
-        // Round-robin 1-faktorisering av K8 för 8 spelare (index 0..7)
-        // Spelare 7 hålls fast, 0..6 roterar
-        for (let r = 0; r < 7; r++) {
-            const p1 = [7, r];
-            const p2 = [(r + 1) % 7, (r + 6) % 7];
-            const p3 = [(r + 2) % 7, (r + 5) % 7];
-            const p4 = [(r + 3) % 7, (r + 4) % 7];
-
-            const teams = [
-                { id: `R${r}_T1`, name: `Lag 1`, players: [playerNames[p1[0]], playerNames[p1[1]]] },
-                { id: `R${r}_T2`, name: `Lag 2`, players: [playerNames[p2[0]], playerNames[p2[1]]] },
-                { id: `R${r}_T3`, name: `Lag 3`, players: [playerNames[p3[0]], playerNames[p3[1]]] },
-                { id: `R${r}_T4`, name: `Lag 4`, players: [playerNames[p4[0]], playerNames[p4[1]]] }
-            ];
-
-            const matches = [
-                createMatch(r, 1, 1, teams[0], teams[1], 'Matchomgång 1'),
-                createMatch(r, 1, 2, teams[2], teams[3], 'Matchomgång 1'),
-                
-                createMatch(r, 2, 1, teams[0], teams[2], 'Matchomgång 2'),
-                createMatch(r, 2, 2, teams[1], teams[3], 'Matchomgång 2'),
-                
-                createMatch(r, 3, 1, teams[0], teams[3], 'Matchomgång 3'),
-                createMatch(r, 3, 2, teams[1], teams[2], 'Matchomgång 3')
-            ];
-
-            rounds.push({
-                roundNumber: r + 1,
-                name: `Omgång ${r + 1}`,
-                teams: teams,
-                matches: matches
-            });
+    function getAudioContext() {
+        if (!audioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) audioCtx = new AudioContextClass();
         }
-
-        return rounds;
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        return audioCtx;
     }
 
-    /**
-     * Alternativ 2: Bana-rotation
-     * 7 omgångar. Samma 4 spelar på samma bana hela omgången.
-     * På banan spelas 3 matcher så att man spelar en match med varje annan spelare på banan.
-     */
-    function generateScheduleOption2(playerNames) {
-        const fanoLines = [
-            [0, 1, 3],
-            [1, 2, 4],
-            [2, 3, 5],
-            [3, 4, 6],
-            [4, 5, 0],
-            [5, 6, 1],
-            [6, 0, 2]
-        ];
-
-        const rounds = [];
-
-        for (let r = 0; r < 7; r++) {
-            const line = fanoLines[r];
-            const court1Indices = [7, line[0], line[1], line[2]];
-            const court2Indices = [0, 1, 2, 3, 4, 5, 6].filter(idx => !line.includes(idx));
-
-            const c1Players = court1Indices.map(i => playerNames[i]);
-            const c2Players = court2Indices.map(i => playerNames[i]);
-
-            // På Bana 1 (A, B, C, D):
-            const court1Matches = [
-                createMatch(r, 1, 1, 
-                    { id: `R${r}_C1M1_T1`, name: 'Lag 1', players: [c1Players[0], c1Players[1]] },
-                    { id: `R${r}_C1M1_T2`, name: 'Lag 2', players: [c1Players[2], c1Players[3]] },
-                    'Match 1'
-                ),
-                createMatch(r, 2, 1, 
-                    { id: `R${r}_C1M2_T1`, name: 'Lag 1', players: [c1Players[0], c1Players[2]] },
-                    { id: `R${r}_C1M2_T2`, name: 'Lag 2', players: [c1Players[1], c1Players[3]] },
-                    'Match 2'
-                ),
-                createMatch(r, 3, 1, 
-                    { id: `R${r}_C1M3_T1`, name: 'Lag 1', players: [c1Players[0], c1Players[3]] },
-                    { id: `R${r}_C1M3_T2`, name: 'Lag 2', players: [c1Players[1], c1Players[2]] },
-                    'Match 3'
-                )
-            ];
-
-            // På Bana 2 (E, F, G, H):
-            const court2Matches = [
-                createMatch(r, 1, 2, 
-                    { id: `R${r}_C2M1_T1`, name: 'Lag 1', players: [c2Players[0], c2Players[1]] },
-                    { id: `R${r}_C2M1_T2`, name: 'Lag 2', players: [c2Players[2], c2Players[3]] },
-                    'Match 1'
-                ),
-                createMatch(r, 2, 2, 
-                    { id: `R${r}_C2M2_T1`, name: 'Lag 1', players: [c2Players[0], c2Players[2]] },
-                    { id: `R${r}_C2M2_T2`, name: 'Lag 2', players: [c2Players[1], c2Players[3]] },
-                    'Match 2'
-                ),
-                createMatch(r, 3, 2, 
-                    { id: `R${r}_C2M3_T1`, name: 'Lag 1', players: [c2Players[0], c2Players[3]] },
-                    { id: `R${r}_C2M3_T2`, name: 'Lag 2', players: [c2Players[1], c2Players[2]] },
-                    'Match 3'
-                )
-            ];
-
-            rounds.push({
-                roundNumber: r + 1,
-                name: `Omgång ${r + 1}`,
-                court1Players: c1Players,
-                court2Players: c2Players,
-                matches: [
-                    court1Matches[0], court2Matches[0],
-                    court1Matches[1], court2Matches[1],
-                    court1Matches[2], court2Matches[2]
-                ]
-            });
-        }
-
-        return rounds;
+    function playTone(freq, duration = 0.08, type = 'sine', gainVal = 0.08) {
+        try {
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, ctx.currentTime);
+            gain.gain.setValueAtTime(gainVal, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + duration);
+        } catch (e) {}
     }
 
-    function createMatch(roundIndex, slotIndex, courtIndex, team1, team2, slotLabel) {
-        return {
-            id: `m_${roundIndex}_${slotIndex}_${courtIndex}`,
-            roundIndex: roundIndex,
-            slotIndex: slotIndex,
-            courtIndex: courtIndex,
-            slotLabel: slotLabel,
-            team1: team1,
-            team2: team2,
-            score1: null,
-            score2: null,
-            completed: false,
-            updatedAt: null
-        };
+    function playClick() { playTone(620, 0.04, 'sine', 0.06); }
+    function playSuccess() {
+        playTone(523.25, 0.08, 'sine', 0.08);
+        setTimeout(() => playTone(659.25, 0.12, 'sine', 0.08), 80);
     }
-
-    /**
-     * Manuell Lottning som anropas via lottningsknappen
-     */
-    function executeDraw(tourney) {
-        if (!tourney || !tourney.players || tourney.players.length !== 8) {
-            alert('Det krävs exakt 8 spelare för att kunna genomföra lottningen.');
-            return false;
-        }
-
-        if (tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0)) {
-            alert('Lottningen är redan genomförd och låst för denna turnering. Den kan inte göras om.');
-            switchTab('tabMatches');
-            return false;
-        }
-
-        // Slumpa spelarnas ordning (Fisher-Yates) så att lottningen blir helt rättvis och slumpmässig
-        for (let i = tourney.players.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [tourney.players[i], tourney.players[j]] = [tourney.players[j], tourney.players[i]];
-        }
-
-        const playerNames = tourney.players.map(p => (typeof p === 'string' ? p : p.name));
-
-        if (tourney.format === 'option1') {
-            tourney.rounds = generateScheduleOption1(playerNames);
-        } else {
-            tourney.rounds = generateScheduleOption2(playerNames);
-        }
-
-        tourney.status = 'active';
-        tourney.isDrawn = true;
-        tourney.drawnAt = new Date().toISOString();
-
-        playFanfare();
-        startConfetti();
-        showDrawCelebrationBanner();
-
-        saveState();
-        renderApp();
-        switchTab('tabMatches');
-        return true;
-    }
-
-    // =========================================================================
-    // 3. TABELL & STATISTIK (LEADERBOARD)
-    // =========================================================================
-
-    function calculateLeaderboard(tournament) {
-        if (!tournament || !tournament.players || tournament.players.length === 0) return [];
-
-        const stats = {};
-        tournament.players.forEach(p => {
-            const pName = typeof p === 'string' ? p : p.name;
-            stats[pName] = {
-                name: pName,
-                matchesPlayed: 0,
-                wins: 0,
-                losses: 0,
-                draws: 0,
-                pointsScored: 0,
-                pointsConceded: 0,
-                pointDiff: 0,
-                totalPoints: 0
-            };
+    function playFanfare() {
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((n, i) => {
+            setTimeout(() => playTone(n, 0.15, 'triangle', 0.1), i * 90);
         });
-
-        if (tournament.rounds && tournament.rounds.length > 0) {
-            tournament.rounds.forEach(round => {
-                (round.matches || []).forEach(m => {
-                    if (m.completed && m.score1 !== null && m.score2 !== null) {
-                        const s1 = parseInt(m.score1, 10);
-                        const s2 = parseInt(m.score2, 10);
-
-                        // Lag 1
-                        m.team1.players.forEach(pName => {
-                            if (stats[pName]) {
-                                stats[pName].matchesPlayed += 1;
-                                stats[pName].pointsScored += s1;
-                                stats[pName].pointsConceded += s2;
-                                stats[pName].pointDiff += (s1 - s2);
-                                stats[pName].totalPoints += s1;
-
-                                if (s1 > s2) stats[pName].wins += 1;
-                                else if (s2 > s1) stats[pName].losses += 1;
-                                else stats[pName].draws += 1;
-                            }
-                        });
-
-                        // Lag 2
-                        m.team2.players.forEach(pName => {
-                            if (stats[pName]) {
-                                stats[pName].matchesPlayed += 1;
-                                stats[pName].pointsScored += s2;
-                                stats[pName].pointsConceded += s1;
-                                stats[pName].pointDiff += (s2 - s1);
-                                stats[pName].totalPoints += s2;
-
-                                if (s2 > s1) stats[pName].wins += 1;
-                                else if (s1 > s2) stats[pName].losses += 1;
-                                else stats[pName].draws += 1;
-                            }
-                        });
-                    }
-                });
-            });
-        }
-
-        const leaderboard = Object.values(stats);
-        leaderboard.sort((a, b) => {
-            if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
-            if (b.pointDiff !== a.pointDiff) return b.pointDiff - a.pointDiff;
-            if (b.wins !== a.wins) return b.wins - a.wins;
-            return b.pointsScored - a.pointsScored;
-        });
-
-        return leaderboard;
     }
+    function playScoreSaved() { playTone(880, 0.06, 'sine', 0.07); }
+    function playDelete() { playTone(280, 0.15, 'sawtooth', 0.08); }
 
     // =========================================================================
-    // 4. STORAGE & SYNC (LOKALT, BROKER & URL-PAYLOAD)
+    // 3. PERSISTENS (LOCALSTORAGE & SYNC)
     // =========================================================================
 
     function loadState() {
@@ -373,105 +108,30 @@
                 appState.activeTournamentId = parsed.activeTournamentId || null;
             }
         } catch (e) {
-            console.error('Kunde inte läsa från localStorage:', e);
+            console.error('Kunde inte läsa state:', e);
         }
 
-        // Säkerställ att varje turnering har adminKey, adminCode och organizer
-        const currentAdminKeys = getAdminKeys();
-        let keysNeedSave = false;
-        (appState.tournaments || []).forEach(t => {
-            if (!t.adminKey) {
-                t.adminKey = 'adm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
-            }
-            if (!t.adminCode) {
-                t.adminCode = 'PT-' + Math.floor(10 + Math.random() * 90);
-            }
-            if (!t.organizer) {
-                t.organizer = {
-                    id: 'org_' + (t.id || 'default'),
-                    name: ''
-                };
-            }
-            // Säkerställ att spelare i turneringen har 4-siffrig PIN
-            (t.players || []).forEach((p, idx) => {
-                if (typeof p === 'object' && !p.pin) {
-                    p.pin = Math.floor(1000 + Math.random() * 9000).toString();
-                }
-            });
-            // Om turneringen finns lokalt men nyckeln saknas i nyckelregistret, spara den
-            if (!currentAdminKeys[t.id]) {
-                currentAdminKeys[t.id] = t.adminKey;
-                keysNeedSave = true;
-            }
-        });
-        if (keysNeedSave) {
-            try {
-                localStorage.setItem(ADMIN_KEYS_KEY, JSON.stringify(currentAdminKeys));
-            } catch (e) {}
-        }
-
-        // Läs in spelarregistret (registrerade spelare)
-        try {
-            const regRaw = localStorage.getItem(PLAYERS_KEY);
-            if (regRaw) {
-                appState.registeredPlayers = JSON.parse(regRaw);
-                // Säkerställ att varje spelare har en 4-siffrig PIN
-                let updatedPins = false;
-                appState.registeredPlayers.forEach(rp => {
-                    if (!rp.pin) {
-                        rp.pin = Math.floor(1000 + Math.random() * 9000).toString();
-                        updatedPins = true;
-                    }
-                });
-                if (updatedPins) saveRegisteredPlayers();
-            } else {
-                // Samla befintliga spelare från turneringar om registret är tomt
-                const existingMap = new Map();
-                (appState.tournaments || []).forEach(t => {
-                    (t.players || []).forEach(p => {
-                        const name = typeof p === 'string' ? p : p.name;
-                        const pin = (typeof p === 'object' && p.pin) ? p.pin : Math.floor(1000 + Math.random() * 9000).toString();
-                        if (name && !existingMap.has(name.toLowerCase())) {
-                            existingMap.set(name.toLowerCase(), {
-                                id: (typeof p === 'object' && p.id) ? p.id : ('p_' + Math.random().toString(36).substr(2, 6)),
-                                name: name,
-                                pin: pin,
-                                registeredAt: new Date().toISOString()
-                            });
-                        }
-                    });
-                });
-                appState.registeredPlayers = Array.from(existingMap.values());
-                saveRegisteredPlayers();
-            }
-        } catch (e) {
-            console.error('Kunde inte läsa registrerade spelare:', e);
-            appState.registeredPlayers = [];
-        }
-
-        // Inloggad användare: standard är GÄSTLÄGE (null) så besökare kan titta utan inloggning
         try {
             const userRaw = localStorage.getItem(AUTH_KEY);
             if (userRaw) {
                 appState.currentUser = JSON.parse(userRaw);
             } else {
-                appState.currentUser = null; // Gästläge som standard
+                appState.currentUser = null;
             }
         } catch (e) {
-            console.error('Kunde inte läsa användare:', e);
             appState.currentUser = null;
         }
 
-        // Om skaparen besöker sin egen turnering på denna enhet och ingen användare är inloggad:
-        const activeT = appState.activeTournamentId ? appState.tournaments.find(t => t.id === appState.activeTournamentId) : null;
-        if (activeT && !appState.currentUser) {
-            const keys = getAdminKeys();
-            if (activeT.adminKey && keys[activeT.id] === activeT.adminKey) {
+        // Om skaparen besöker sin egen turnering och adminKey stämmer -> arrangör
+        const active = getActiveTournament();
+        if (active && !appState.currentUser) {
+            const adminKeys = getAdminKeys();
+            if (active.adminKey && adminKeys[active.id] === active.adminKey) {
                 appState.currentUser = {
-                    id: (activeT.organizer && activeT.organizer.id) ? activeT.organizer.id : 'org_creator',
-                    name: (activeT.organizer && activeT.organizer.name) ? activeT.organizer.name : 'Arrangör',
+                    id: (active.organizer && active.organizer.id) ? active.organizer.id : 'org_' + active.id,
+                    name: (active.organizer && active.organizer.name) ? active.organizer.name : 'Arrangör',
                     role: 'admin',
-                    tourneyKey: activeT.adminKey
+                    tourneyKey: active.adminKey
                 };
                 saveUser();
             }
@@ -487,19 +147,10 @@
                 deletedTournaments: appState.deletedTournaments,
                 activeTournamentId: appState.activeTournamentId
             }));
-
             broadcastLocalUpdate();
             syncToCloud();
         } catch (e) {
-            console.error('Kunde inte spara till localStorage:', e);
-        }
-    }
-
-    function saveRegisteredPlayers() {
-        try {
-            localStorage.setItem(PLAYERS_KEY, JSON.stringify(appState.registeredPlayers || []));
-        } catch (e) {
-            console.error('Kunde inte spara registrerade spelare:', e);
+            console.error('Kunde inte spara state:', e);
         }
     }
 
@@ -510,84 +161,164 @@
             } else {
                 localStorage.removeItem(AUTH_KEY);
             }
+        } catch (e) {}
+    }
+
+    function getAdminKeys() {
+        try {
+            return JSON.parse(localStorage.getItem(ADMIN_KEYS_KEY) || '{}');
         } catch (e) {
-            console.error('Kunde inte spara användare:', e);
+            return {};
         }
     }
 
-    function logoutUser() {
-        appState.currentUser = null;
-        saveUser();
-        renderUserStatus();
-        renderApp();
-        playAudioTone(400, 0.15);
+    function saveAdminKeyForTourney(tourneyId, key) {
+        const keys = getAdminKeys();
+        keys[tourneyId] = key;
+        try {
+            localStorage.setItem(ADMIN_KEYS_KEY, JSON.stringify(keys));
+        } catch (e) {}
     }
 
-    // BroadcastChannel för öppna flikar på samma enhet
+    // =========================================================================
+    // 4. REALTI DSSYNK (MQTT & BROADCASTCHANNEL)
+    // =========================================================================
+
     try {
         if ('BroadcastChannel' in window) {
-            broadcastChannel = new BroadcastChannel('pinta_padel_sync_channel');
+            broadcastChannel = new BroadcastChannel('pinta_padel_sync');
             broadcastChannel.onmessage = (event) => {
-                if (event.data && event.data.type === 'STATE_UPDATED') {
+                if (event.data && event.data.type === 'SYNC') {
                     loadState();
                     renderApp();
                 }
             };
         }
-    } catch (e) {
-        console.warn('BroadcastChannel stöds ej:', e);
-    }
+    } catch (e) {}
 
     function broadcastLocalUpdate() {
         if (broadcastChannel) {
-            broadcastChannel.postMessage({ type: 'STATE_UPDATED', timestamp: Date.now() });
+            broadcastChannel.postMessage({ type: 'SYNC', timestamp: Date.now() });
         }
     }
 
+    function initCloudSync() {
+        const active = getActiveTournament();
+        const dot = document.getElementById('syncDot');
+        if (!active || typeof Paho === 'undefined' || !Paho.MQTT) {
+            if (dot) dot.classList.add('offline');
+            return;
+        }
+
+        try {
+            if (mqttClient && mqttClient.isConnected()) return;
+
+            const clientId = 'pinta_' + Math.random().toString(16).substring(2, 10);
+            mqttClient = new Paho.MQTT.Client('broker.hivemq.com', 8884, '/mqtt', clientId);
+
+            mqttClient.onConnectionLost = () => {
+                appState.cloudConnected = false;
+                if (dot) dot.classList.add('offline');
+                setTimeout(initCloudSync, 4000);
+            };
+
+            mqttClient.onMessageArrived = (message) => {
+                try {
+                    const data = JSON.parse(message.payloadString);
+                    if (data && data.tourney && data.tourney.id === appState.activeTournamentId) {
+                        const idx = appState.tournaments.findIndex(t => t.id === data.tourney.id);
+                        if (idx >= 0) {
+                            appState.tournaments[idx] = data.tourney;
+                        } else {
+                            appState.tournaments.push(data.tourney);
+                        }
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                            tournaments: appState.tournaments,
+                            deletedTournaments: appState.deletedTournaments,
+                            activeTournamentId: appState.activeTournamentId
+                        }));
+                        renderApp();
+                        playTone(720, 0.05);
+                    }
+                } catch (e) {}
+            };
+
+            mqttClient.connect({
+                useSSL: true,
+                timeout: 5,
+                keepAliveInterval: 30,
+                onSuccess: () => {
+                    appState.cloudConnected = true;
+                    if (dot) dot.classList.remove('offline');
+                    mqttClient.subscribe(`pinta_padel_tour/tourney/${active.id}`);
+                },
+                onFailure: () => {
+                    appState.cloudConnected = false;
+                    if (dot) dot.classList.add('offline');
+                }
+            });
+        } catch (e) {
+            if (dot) dot.classList.add('offline');
+        }
+    }
+
+    function syncToCloud() {
+        const active = getActiveTournament();
+        if (!active || !mqttClient || !mqttClient.isConnected()) return;
+        try {
+            const topic = `pinta_padel_tour/tourney/${active.id}`;
+            const message = new Paho.MQTT.Message(JSON.stringify({
+                type: 'SYNC',
+                tourney: active,
+                timestamp: Date.now()
+            }));
+            message.destinationName = topic;
+            message.retained = true;
+            mqttClient.send(message);
+        } catch (e) {}
+    }
+
+    // =========================================================================
+    // 5. URL-DELNING & INBJUDAN
+    // =========================================================================
+
     function checkUrlForSharedTournament() {
         const urlParams = new URLSearchParams(window.location.search);
-        const tourneyId = urlParams.get('t');
+        const tourneyId = urlParams.get('t') || urlParams.get('id');
         const adminKeyParam = urlParams.get('key') || urlParams.get('admin');
         const hash = window.location.hash;
 
-        if (hash && (hash.startsWith('#invite=') || hash.startsWith('#data='))) {
+        if (hash && hash.startsWith('#data=')) {
             try {
-                const encoded = hash.replace('#invite=', '').replace('#data=', '');
+                const encoded = hash.replace('#data=', '');
                 const decompressed = decodeURIComponent(atob(encoded));
                 const imported = JSON.parse(decompressed);
                 if (imported && imported.id) {
-                    const existingIndex = appState.tournaments.findIndex(t => t.id === imported.id);
-                    if (existingIndex >= 0) {
-                        // Behåll eventuell lokal adminKey om den saknades i den delade publika datan
-                        if (!imported.adminKey && appState.tournaments[existingIndex].adminKey) {
-                            imported.adminKey = appState.tournaments[existingIndex].adminKey;
-                        }
-                        appState.tournaments[existingIndex] = imported;
+                    const idx = appState.tournaments.findIndex(t => t.id === imported.id);
+                    if (idx >= 0) {
+                        appState.tournaments[idx] = imported;
                     } else {
                         appState.tournaments.push(imported);
                     }
                     appState.activeTournamentId = imported.id;
                     saveState();
                 }
-            } catch (err) {
-                console.warn('Kunde inte läsa turneringsdata från hash:', err);
-            }
+            } catch (e) {}
         } else if (tourneyId) {
             let found = appState.tournaments.find(t => t.id === tourneyId);
             if (!found) {
-                const tourneyName = urlParams.get('turnering') || urlParams.get('namn') || urlParams.get('name') || urlParams.get('n') || 'Pinta Padel Tour';
-                const orgNameParam = urlParams.get('org') || urlParams.get('arrangor');
+                const tourneyName = urlParams.get('n') || urlParams.get('namn') || 'Pinta Padel Tour';
                 found = {
                     id: tourneyId,
                     name: decodeURIComponent(tourneyName),
-                    format: urlParams.get('f') || 'option1',
-                    pointSystem: urlParams.get('p') || 'games',
+                    format: 'option1',
+                    pointSystem: 'games',
                     status: 'lobby',
                     isDrawn: false,
                     players: [],
                     rounds: [],
                     createdAt: new Date().toISOString(),
-                    organizer: orgNameParam ? { id: 'org_' + tourneyId, name: decodeURIComponent(orgNameParam) } : null
+                    organizer: null
                 };
                 appState.tournaments.push(found);
             }
@@ -595,26 +326,13 @@
             saveState();
         }
 
-        // Om en arrangörsnyckel skickas i URL:en (?key=adm_xxx eller ?admin=ulrik) -> Lås upp full arrangörsbehörighet!
         const active = getActiveTournament();
-        if (adminKeyParam) {
-            const isMaster = (adminKeyParam.toLowerCase() === 'ulrik');
-            if (isMaster) {
-                if (active) saveAdminKeyForTourney(active.id, active.adminKey || 'master_ulrik');
-                appState.currentUser = {
-                    id: 'admin_ulrik',
-                    name: 'Ulrik',
-                    role: 'admin',
-                    isMasterAdmin: true,
-                    tourneyKey: active ? active.adminKey : null
-                };
-                saveUser();
-                saveState();
-            } else if (active && (!active.adminKey || active.adminKey === adminKeyParam)) {
+        if (adminKeyParam && active) {
+            if (adminKeyParam.toLowerCase() === 'ulrik' || (active.adminKey && active.adminKey === adminKeyParam)) {
                 active.adminKey = adminKeyParam;
                 saveAdminKeyForTourney(active.id, adminKeyParam);
                 appState.currentUser = {
-                    id: (active.organizer && active.organizer.id) ? active.organizer.id : ('admin_' + active.id),
+                    id: (active.organizer && active.organizer.id) ? active.organizer.id : 'org_' + active.id,
                     name: (active.organizer && active.organizer.name) ? active.organizer.name : 'Arrangör',
                     role: 'admin',
                     tourneyKey: adminKeyParam
@@ -625,423 +343,108 @@
         }
     }
 
-    // =========================================================================
-    // 5. REALTIDSSYNK VIA PAHO MQTT
-    // =========================================================================
-
-    function initCloudSync() {
-        const active = getActiveTournament();
-        if (!active) return;
-
-        if (typeof Paho === 'undefined' || !Paho.MQTT) {
-            updateCloudStatus(true, 'Lokal synk (Aktiv)');
-            return;
-        }
-
-        try {
-            if (mqttClient && mqttClient.isConnected()) {
-                return;
-            }
-
-            const clientId = 'pinta_' + Math.random().toString(16).substr(2, 8);
-            mqttClient = new Paho.MQTT.Client('broker.hivemq.com', 8884, '/mqtt', clientId);
-
-            mqttClient.onConnectionLost = (responseObject) => {
-                appState.cloudConnected = false;
-                updateCloudStatus(false, 'Återansluter...');
-                setTimeout(initCloudSync, 4000);
-            };
-
-            mqttClient.onMessageArrived = (message) => {
-                try {
-                    const payload = JSON.parse(message.payloadString);
-                    if (payload && payload.tourney && payload.tourney.id === appState.activeTournamentId) {
-                        const localTourney = getActiveTournament();
-                        if (payload.tourney.players.length !== (localTourney ? localTourney.players.length : 0) ||
-                            payload.tourney.status !== (localTourney ? localTourney.status : '') ||
-                            (payload.tourney.rounds && payload.tourney.rounds.length > 0 && (!localTourney.rounds || localTourney.rounds.length === 0))) {
-                            
-                            const idx = appState.tournaments.findIndex(t => t.id === payload.tourney.id);
-                            if (idx >= 0) {
-                                appState.tournaments[idx] = payload.tourney;
-                            } else {
-                                appState.tournaments.push(payload.tourney);
-                            }
-                            localStorage.setItem(STORAGE_KEY, JSON.stringify({
-                                tournaments: appState.tournaments,
-                                deletedTournaments: appState.deletedTournaments,
-                                activeTournamentId: appState.activeTournamentId
-                            }));
-                            renderApp();
-                            playAudioTone(700, 0.1);
-                        }
-                    }
-                } catch (e) {
-                    console.warn('MQTT felaktigt meddelande:', e);
-                }
-            };
-
-            mqttClient.connect({
-                useSSL: true,
-                timeout: 5,
-                keepAliveInterval: 30,
-                onSuccess: () => {
-                    appState.cloudConnected = true;
-                    updateCloudStatus(true, 'Live Synkad (Internet)');
-                    const topic = `pinta_padel_tour/tourney/${active.id}`;
-                    mqttClient.subscribe(topic);
-                },
-                onFailure: (err) => {
-                    appState.cloudConnected = false;
-                    updateCloudStatus(true, 'Synkad (Lokal)');
-                }
-            });
-        } catch (e) {
-            updateCloudStatus(true, 'Lokal synk');
-        }
-    }
-
-    function syncToCloud() {
-        const active = getActiveTournament();
-        if (!active) return;
-
-        if (mqttClient && mqttClient.isConnected()) {
-            try {
-                const topic = `pinta_padel_tour/tourney/${active.id}`;
-                const payload = JSON.stringify({
-                    type: 'SYNC',
-                    tourney: active,
-                    sender: appState.currentUser ? appState.currentUser.id : 'unknown',
-                    timestamp: Date.now()
-                });
-                const message = new Paho.MQTT.Message(payload);
-                message.destinationName = topic;
-                message.retained = true;
-                mqttClient.send(message);
-            } catch (e) {
-                console.warn('Kunde inte publicera MQTT:', e);
-            }
-        }
-    }
-
-    function updateCloudStatus(isOnline, customText) {
-        const dot = document.querySelector('.cloud-dot');
-        const text = document.getElementById('cloudStatusText');
-        if (dot && text) {
-            if (isOnline) {
-                dot.style.background = '#00e676';
-                dot.style.boxShadow = '0 0 8px #00e676';
-                text.textContent = customText || 'Live Synkad';
-            } else {
-                dot.style.background = '#ffb703';
-                dot.style.boxShadow = 'none';
-                text.textContent = customText || 'Offline';
-            }
-        }
+    function getShareableUrl(tourney) {
+        if (!tourney) return window.location.origin + window.location.pathname;
+        const base = window.location.origin + window.location.pathname;
+        const cleanName = encodeURIComponent(tourney.name || 'Padel');
+        return `${base}?t=${tourney.id}&n=${cleanName}`;
     }
 
     // =========================================================================
-    // 6. RADERING & ÅTERSTÄLLNING AV TURNERINGAR (PAPPERSKORG & ÅNGRA)
-    // =========================================================================
-
-    /**
-     * Radera turnering – Flyttas till papperskorgen med möjlighet att tas tillbaka!
-     */
-    function deleteTournament(tourneyId, isPermanent = false) {
-        const tourney = appState.tournaments.find(t => t.id === tourneyId) || appState.deletedTournaments.find(t => t.id === tourneyId);
-        if (tourney && !isUserOrganizerOf(tourney) && (!appState.currentUser || appState.currentUser.role !== 'admin')) {
-            alert(`Endast turneringens arrangör (${tourney.organizer ? tourney.organizer.name : 'Admin'}) har behörighet att radera turneringen. Logga in med arrangörskoden om du styr från en ny enhet.`);
-            openModal('modalAuth');
-            return;
-        }
-
-        if (isPermanent) {
-            const idx = appState.deletedTournaments.findIndex(t => t.id === tourneyId);
-            if (idx >= 0) {
-                const tourney = appState.deletedTournaments[idx];
-                if (confirm(`Vill du radera "${tourney.name}" permanent ur papperskorgen? Detta kan inte ångras.`)) {
-                    appState.deletedTournaments.splice(idx, 1);
-                    saveState();
-                    renderHistory();
-                    playAudioTone(300, 0.1);
-                }
-            }
-            return;
-        }
-
-        // Flytta till papperskorgen (Soft delete)
-        const idx = appState.tournaments.findIndex(t => t.id === tourneyId);
-        if (idx >= 0) {
-            const tourney = appState.tournaments.splice(idx, 1)[0];
-            tourney.deletedAt = new Date().toISOString();
-            appState.deletedTournaments.unshift(tourney);
-
-            // Nollställ ALLT och visa startskärmen automatiskt
-            appState.activeTournamentId = null;
-
-            // Om inloggad användare var spelare eller arrangör specifikt för denna turnering, nollställ sessionen
-            if (appState.currentUser) {
-                if (appState.currentUser.role === 'player' || (appState.currentUser.tourneyKey && appState.currentUser.tourneyKey === tourney.adminKey)) {
-                    appState.currentUser = null;
-                    saveUser();
-                }
-            }
-
-            // Rensa URL-parametrar (?t=... eller #invite=...) så att adressfältet inte pekar på den raderade turneringen
-            try {
-                history.replaceState(null, '', window.location.pathname);
-            } catch (e) {}
-
-            // Återställ sidtitel
-            document.title = 'Pinta Padel Tour – Turneringsmotor & Lottning';
-            const pageTitleEl = document.getElementById('pageTitle');
-            if (pageTitleEl) pageTitleEl.textContent = 'Pinta Padel Tour – Turneringsmotor & Lottning';
-
-            // Nollställ flikarna till Väntrum (tabLobby)
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
-            const lobbyBtn = document.querySelector('.tab-btn[data-tab="tabLobby"]');
-            const lobbySec = document.getElementById('tabLobby');
-            if (lobbyBtn) lobbyBtn.classList.add('active');
-            if (lobbySec) lobbySec.classList.add('active');
-
-            saveState();
-            renderApp();
-            showUndoToast(tourney);
-            playAudioTone(400, 0.15);
-        }
-    }
-
-    /**
-     * Ta tillbaka / Återställ turnering från papperskorgen
-     */
-    function restoreTournament(tourneyId) {
-        const idx = appState.deletedTournaments.findIndex(t => t.id === tourneyId);
-        if (idx >= 0) {
-            const tourney = appState.deletedTournaments.splice(idx, 1)[0];
-            delete tourney.deletedAt;
-            appState.tournaments.unshift(tourney);
-            appState.activeTournamentId = tourney.id;
-
-            hideUndoToast();
-            saveState();
-            renderApp();
-            playAudioTone(659.25, 0.2); // E5
-        }
-    }
-
-    /**
-     * Töm papperskorgen helt
-     */
-    function emptyTrash() {
-        if (!appState.deletedTournaments || appState.deletedTournaments.length === 0) {
-            alert('Papperskorgen är redan tom.');
-            return;
-        }
-
-        if (confirm(`Vill du tömma papperskorgen permanent? Alla ${appState.deletedTournaments.length} raderade turneringar tas bort helt.`)) {
-            appState.deletedTournaments = [];
-            saveState();
-            renderHistory();
-            playAudioTone(250, 0.15);
-        }
-    }
-
-    /**
-     * Ångra-toast vid radering
-     */
-    function showUndoToast(tourney) {
-        const container = document.getElementById('toastContainer');
-        if (!container) return;
-        hideUndoToast();
-
-        const toast = document.createElement('div');
-        toast.className = 'toast-undo';
-        toast.id = 'activeUndoToast';
-        toast.innerHTML = `
-            <span>🗑️ Turneringen "<b>${escapeHtml(tourney.name)}</b>" flyttades till papperskorgen.</span>
-            <button type="button" class="toast-undo-btn">Ångra ↺</button>
-        `;
-
-        toast.querySelector('.toast-undo-btn').addEventListener('click', () => {
-            restoreTournament(tourney.id);
-        });
-
-        container.appendChild(toast);
-
-        undoToastTimer = setTimeout(() => {
-            hideUndoToast();
-        }, 8000);
-    }
-
-    function hideUndoToast() {
-        if (undoToastTimer) clearTimeout(undoToastTimer);
-        const el = document.getElementById('activeUndoToast');
-        if (el) el.remove();
-    }
-
-    // =========================================================================
-    // 7. TURNERINGSAKTIVITETER & SPELARREGISTRERING
+    // 6. TURNERINGSHANTERING (SKAPA, LOTTA, RADERA)
     // =========================================================================
 
     function getActiveTournament() {
         return appState.tournaments.find(t => t.id === appState.activeTournamentId) || null;
     }
 
-    /**
-     * Skapa ny turnering i Pinta Padel Tour (Helt utan mail)
-     * - Genererar unik adminKey och arrangörskod (PT-xx)
-     * - Sparar adminKey i localStorage på denna enhet -> Automatisk arrangörsbehörighet!
-     * - Om organizerPlays är sant: lägger automatiskt in arrangören på Plats 1 direkt med personlig PIN-kod.
-     */
-    function createNewTournament(name, format, pointSystem, organizerData, organizerPlays = true) {
-        const id = 'pinta_' + Date.now();
-        const adminKey = 'adm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+    function isUserOrganizerOf(tourney) {
+        if (!tourney) return false;
+        if (!appState.currentUser) return false;
+        if (appState.currentUser.role === 'admin') return true;
+        const keys = getAdminKeys();
+        if (tourney.adminKey && keys[tourney.id] === tourney.adminKey) return true;
+        return false;
+    }
+
+    function createNewTournament(name, organizerName, organizerPlays = true, format = 'option1', pointSystem = 'games') {
+        const id = 'pt_' + Date.now();
+        const adminKey = 'adm_' + Math.random().toString(36).substring(2, 9);
         const adminCode = 'PT-' + Math.floor(10 + Math.random() * 90);
-
-        const orgName = (organizerData && organizerData.name && organizerData.name.trim()) 
-            ? organizerData.name.trim() 
-            : (appState.currentUser && appState.currentUser.name ? appState.currentUser.name : 'Arrangör');
-
-        // Spara senaste arrangörsuppgifter i localStorage för bekvämlighet
-        try {
-            localStorage.setItem('pinta_padel_last_organizer', JSON.stringify({ name: orgName }));
-        } catch (e) {}
+        const orgCleanName = organizerName.trim() || 'Arrangör';
 
         const newTourney = {
             id: id,
-            name: name || `Pinta Padel Tour – ${new Date().toLocaleDateString('sv-SE')}`,
-            format: format || 'option1',
-            pointSystem: pointSystem || 'games', // Standard: Game-räkning
+            name: name.trim() || 'Padelturnering',
+            format: format,
+            pointSystem: pointSystem,
             createdAt: new Date().toISOString(),
             status: 'lobby',
             isDrawn: false,
-            players: [],
-            rounds: [],
-            currentRoundIndex: 0,
             adminKey: adminKey,
             adminCode: adminCode,
             organizer: {
-                id: 'org_' + Date.now(),
-                name: orgName
-            }
+                id: 'org_' + id,
+                name: orgCleanName
+            },
+            players: [],
+            rounds: []
         };
 
-        // Spara adminnyckel lokalt på denna enhet -> Automatisk arrangörsbehörighet utan lösenord!
-        saveAdminKeyForTourney(id, adminKey);
+        // Om arrangören spelar själv -> sätts direkt på Plats 1 med egen PIN-kod
+        if (organizerPlays) {
+            const orgPin = Math.floor(1000 + Math.random() * 9000).toString();
+            newTourney.players.push({
+                id: 'p_1_' + Date.now(),
+                name: orgCleanName,
+                pin: orgPin,
+                isOrganizer: true
+            });
+        }
 
-        // Gör skaparen inloggad som arrangör direkt
+        saveAdminKeyForTourney(id, adminKey);
+        appState.tournaments.unshift(newTourney);
+        appState.activeTournamentId = id;
+
+        // Skaparen är alltid inloggad som arrangör på denna enhet
         appState.currentUser = {
-            id: newTourney.organizer.id,
-            name: orgName,
+            id: 'org_' + id,
+            name: orgCleanName,
             role: 'admin',
             tourneyKey: adminKey
         };
 
-        // Om arrangören också ska spela: lägg till på Plats 1 direkt med en egen 4-siffrig PIN!
-        if (organizerPlays) {
-            const orgPin = Math.floor(1000 + Math.random() * 9000).toString();
-            const orgPlayer = {
-                id: newTourney.organizer.id,
-                name: orgName,
-                pin: orgPin,
-                registeredAt: new Date().toISOString(),
-                avatar: orgName.charAt(0).toUpperCase()
-            };
-            newTourney.players.push(orgPlayer);
-
-            // Spara i centrala spelarregistret
-            if (!appState.registeredPlayers) appState.registeredPlayers = [];
-            const exists = appState.registeredPlayers.some(rp => rp.name.toLowerCase() === orgName.toLowerCase());
-            if (!exists) {
-                appState.registeredPlayers.push({
-                    id: orgPlayer.id,
-                    name: orgName,
-                    pin: orgPin,
-                    registeredAt: new Date().toISOString()
-                });
-                saveRegisteredPlayers();
-            }
-            appState.currentUser.pin = orgPin;
-        }
-
         saveUser();
-        appState.tournaments.unshift(newTourney);
-        appState.activeTournamentId = id;
         saveState();
-        playAudioTone(523.25, 0.15); // C5
-
         initCloudSync();
-        return newTourney;
+        renderApp();
+        switchView('viewPlayers');
+        playSuccess();
     }
 
-    /**
-     * Registrera en spelare i Pinta Padel Tour (100% utan mail: bara namn + 4-siffrig kod)
-     * - Slumpar en 4-siffrig PIN-kod
-     * - Sparar automatiskt i telefonen (localStorage) så att spelaren är inloggad direkt
-     * - Visar bekräftelsemodal med koden direkt på skärmen
-     */
-    function registerPlayer(tourney, playerData, showConfirmationModal = true) {
+    function registerPlayer(tourney, name, slotIndex) {
         if (!tourney) return false;
-
         if (tourney.players.length >= 8) {
-            alert('Turneringen har redan nått maxantalet 8 spelare! Lottning kan nu genomföras.');
+            alert('Turneringen är redan full (8 spelare).');
             return false;
         }
 
-        const name = (typeof playerData === 'string' ? playerData : (playerData && playerData.name ? playerData.name : '')).trim();
+        const cleanName = name.trim();
+        if (!cleanName) return false;
 
-        if (!name) {
-            alert('Vänligen ange ett namn för att ta en plats.');
-            return false;
-        }
-
-        const alreadyExists = tourney.players.some(p => {
-            const pName = typeof p === 'string' ? p : p.name;
-            return pName.toLowerCase() === name.toLowerCase();
-        });
-
-        if (alreadyExists) {
-            alert(`Spelaren "${name}" är redan anmäld till denna turnering.`);
-            return false;
-        }
-
-        // Hämta eller skapa i centrala spelarregistret
-        if (!appState.registeredPlayers) appState.registeredPlayers = [];
-        let regPlayer = appState.registeredPlayers.find(rp => rp.name.toLowerCase() === name.toLowerCase());
-
-        const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
-
-        if (!regPlayer) {
-            regPlayer = {
-                id: 'player_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-                name: name,
-                pin: generatedPin,
-                registeredAt: new Date().toISOString()
-            };
-            appState.registeredPlayers.push(regPlayer);
-            saveRegisteredPlayers();
-        } else if (!regPlayer.pin) {
-            regPlayer.pin = generatedPin;
-            saveRegisteredPlayers();
-        }
-
+        const pin = Math.floor(1000 + Math.random() * 9000).toString();
         const newPlayer = {
-            id: regPlayer.id,
-            name: regPlayer.name,
-            pin: regPlayer.pin,
-            registeredAt: new Date().toISOString(),
-            avatar: regPlayer.name.charAt(0).toUpperCase()
+            id: 'p_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5),
+            name: cleanName,
+            pin: pin,
+            isOrganizer: false
         };
 
         tourney.players.push(newPlayer);
 
-        // Bestäm om vi ska logga in som den nya spelaren på denna enhet:
-        // Om arrangören är inloggad och lägger till en spelare -> ändra INTE arrangörens inloggning!
-        const isOrganizerLoggedIn = appState.currentUser && appState.currentUser.role === 'admin';
-
-        if (!isOrganizerLoggedIn) {
-            // Det är en deltagare som registrerar sig själv på sin egen enhet -> logga in direkt!
+        // Om arrangören lägger till en spelare -> ARRANGÖREN FÖRMÅR VARA ARRANGÖR!
+        const isOrg = appState.currentUser && appState.currentUser.role === 'admin';
+        if (!isOrg) {
             appState.currentUser = {
                 id: newPlayer.id,
                 name: newPlayer.name,
@@ -1049,1802 +452,917 @@
                 role: 'player'
             };
             saveUser();
-            renderUserStatus();
-        }
-
-        // Visa koden direkt på skärmen i bekräftelsemodalen
-        if (showConfirmationModal) {
-            const titleEl = document.getElementById('pinModalTitle');
-            const subtitleEl = document.getElementById('pinModalSubtitle');
-            const nameEl = document.getElementById('pinConfirmPlayerName');
-            const badgeEl = document.getElementById('pinConfirmSlotBadge');
-            const codeEl = document.getElementById('pinConfirmCodeDisplay');
-
-            const slotNumber = tourney.players.length;
-
-            if (isOrganizerLoggedIn) {
-                if (titleEl) titleEl.textContent = 'Spelare tillagd!';
-                if (subtitleEl) {
-                    subtitleEl.innerHTML = `<strong>${escapeHtml(newPlayer.name)}</strong> har tilldelats <span style="color: var(--primary); font-weight: 800;">Plats ${slotNumber} av 8</span>.<br><span style="font-size:13px; color:var(--text-muted); margin-top:6px; display:inline-block;">Ge den 4-siffriga koden nedan till spelaren så att de kan logga in på sin egen mobil:</span>`;
-                }
-            } else {
-                if (titleEl) titleEl.textContent = 'Du har tagit en plats!';
-                if (subtitleEl) {
-                    subtitleEl.innerHTML = `Välkommen till turneringen, <strong id="pinConfirmPlayerName" style="color: #fff;">${escapeHtml(newPlayer.name)}</strong>! Du har <span id="pinConfirmSlotBadge" style="color: var(--primary); font-weight: 800;">Plats ${slotNumber} av 8</span>.`;
-                }
-            }
-
-            if (nameEl) nameEl.textContent = newPlayer.name;
-            if (badgeEl) badgeEl.textContent = `Plats ${slotNumber} av 8`;
-            if (codeEl) codeEl.textContent = newPlayer.pin;
-
-            openModal('modalPinConfirmation');
-        }
-
-        if (tourney.players.length === 8) {
-            playAudioTone(783.99, 0.3); // G5 notis att alla 8 är anmälda
-        } else {
-            playAudioTone(600, 0.15);
         }
 
         saveState();
         renderApp();
+
+        // Visa PIN-bekräftelse
+        showPinConfirmModal(newPlayer.name, newPlayer.pin);
+        playSuccess();
         return true;
     }
 
     function removePlayer(tourney, playerIndex) {
-        if (!tourney || playerIndex < 0 || playerIndex >= tourney.players.length) return;
-
-        if (tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0)) {
-            alert('Spelare kan inte tas bort efter att lottningen är genomförd.');
+        if (!tourney || tourney.isDrawn) return;
+        if (!isUserOrganizerOf(tourney)) {
+            alert('Endast turneringens arrangör kan ta bort anmälda spelare.');
             return;
         }
-
-        const targetPlayer = tourney.players[playerIndex];
-        const pName = typeof targetPlayer === 'string' ? targetPlayer : targetPlayer.name;
-
-        const isSelf = appState.currentUser && appState.currentUser.name && pName && 
-            (appState.currentUser.name.toLowerCase() === pName.toLowerCase());
-
-        if (!isUserOrganizerOf(tourney) && !isSelf) {
-            alert('Endast turneringens arrangör kan ta bort anmälda spelare. Om du är arrangör och styr från en annan enhet, ange din arrangörskod.');
-            openModal('modalAuth');
-            return;
-        }
-
-        tourney.players.splice(playerIndex, 1);
-
-        if (tourney.status === 'active' && tourney.players.length < 8) {
-            tourney.status = 'lobby';
-            tourney.rounds = [];
-        }
-
-        saveState();
-        renderApp();
-    }
-
-    function saveMatchScore(matchId, score1, score2) {
-        const tourney = getActiveTournament();
-        if (!tourney || !tourney.rounds) return;
-
-        // Kräver inloggning för att kunna spara/ändra resultat
-        if (!appState.currentUser) {
-            alert('Du måste vara inloggad för att kunna rapportera eller ändra resultat.');
-            const guestPrompt = document.getElementById('authNoticeGuestPrompt');
-            if (guestPrompt) guestPrompt.style.display = 'block';
-            openModal('modalAuth');
-            return;
-        }
-
-        let matchFound = null;
-        for (const round of tourney.rounds) {
-            const m = round.matches.find(item => item.id === matchId);
-            if (m) {
-                m.score1 = score1;
-                m.score2 = score2;
-                m.completed = (score1 !== null && score2 !== null && score1 !== '' && score2 !== '');
-                m.updatedAt = new Date().toISOString();
-                matchFound = m;
-                break;
-            }
-        }
-
-        if (matchFound) {
-            const allMatches = tourney.rounds.flatMap(r => r.matches);
-            const allCompleted = allMatches.every(m => m.completed);
-            
-            if (allCompleted && tourney.status !== 'completed') {
-                tourney.status = 'completed';
-                celebrateWinner();
-            }
-
+        if (confirm(`Ta bort ${tourney.players[playerIndex].name}?`)) {
+            tourney.players.splice(playerIndex, 1);
             saveState();
             renderApp();
-            playAudioTone(659.25, 0.2); // E5
+            playClick();
         }
-    }
-
-    // =========================================================================
-    // 8. INBJUDNINGAR & DELNING (MESSENGER, WHATSAPP, LÄNK)
-    // =========================================================================
-
-    function getInviteUrl(tourney) {
-        if (!tourney) return window.location.href;
-
-        const base = window.location.origin && !window.location.origin.startsWith('file')
-            ? `${window.location.origin}${window.location.pathname}`
-            : window.location.href.split('?')[0].split('#')[0];
-
-        const cleanName = encodeURIComponent(tourney.name || 'Padelturnering');
-        const orgParam = (tourney.organizer && tourney.organizer.name) 
-            ? `&org=${encodeURIComponent(tourney.organizer.name)}` 
-            : '';
-
-        return `${base}?t=${tourney.id}&turnering=${cleanName}${orgParam}`;
     }
 
     /**
-     * Personlig arrangörslänk: innehåller hemliga admin-nyckeln så arrangören kan styra från iPad/dator
+     * Lottning av spelschemat för 8 spelare (7 omgångar)
      */
-    function getOrganizerUrl(tourney) {
-        if (!tourney) return window.location.href;
-        const base = window.location.origin && !window.location.origin.startsWith('file')
-            ? `${window.location.origin}${window.location.pathname}`
-            : window.location.href.split('?')[0].split('#')[0];
-        const cleanName = encodeURIComponent(tourney.name || 'Padelturnering');
-        return `${base}?t=${tourney.id}&turnering=${cleanName}&key=${tourney.adminKey || ''}`;
-    }
-
-    function getInviteMessageText(tourney) {
-        const url = getInviteUrl(tourney);
-        const freeSlots = Math.max(0, 8 - (tourney ? tourney.players.length : 0));
-        const tourneyName = (tourney && tourney.name) ? tourney.name : 'Turnering';
-        const orgName = (tourney && tourney.organizer && tourney.organizer.name) ? tourney.organizer.name : 'Arrangören';
-        return `🎾 Hej! ${orgName} bjuder in dig till Pinta Padel Tour: "${tourneyName}"!\n` +
-               `Det finns 8 platser totalt (${freeSlots} st kvar). Lottning genomförs så fort alla 8 platser är tagna.\n\n` +
-               `Klicka på länken och fyll bara i ditt namn för att ta en plats:\n${url}`;
-    }
-
-    function updateDocumentMetadata(tourney) {
-        const urlParams = new URLSearchParams(window.location.search);
-        const tourneyName = (tourney && tourney.name) 
-            ? tourney.name 
-            : (urlParams.get('turnering') || urlParams.get('namn') || urlParams.get('name') || '');
-
-        if (tourneyName) {
-            const cleanTitle = decodeURIComponent(tourneyName);
-            document.title = `🎾 ${cleanTitle} | Pinta Padel Tour`;
-            const ogTitle = document.getElementById('ogTitle');
-            if (ogTitle) ogTitle.setAttribute('content', `🎾 Inbjudan: ${cleanTitle} – Pinta Padel Tour`);
-            const twTitle = document.getElementById('twTitle');
-            if (twTitle) twTitle.setAttribute('content', `🎾 Inbjudan: ${cleanTitle} – Pinta Padel Tour`);
+    function drawSchedule(tourney) {
+        if (!tourney || tourney.isDrawn) return;
+        if (tourney.players.length !== 8) {
+            alert('Alla 8 platser måste vara fyllda innan lottning kan genomföras.');
+            return;
         }
-    }
-
-    function shareViaMessenger(tourney) {
-        const text = getInviteMessageText(tourney);
-        const url = getInviteUrl(tourney);
-
-        copyTextToClipboard(text);
-
-        if (navigator.share && /mobile|android|iphone/i.test(navigator.userAgent)) {
-            navigator.share({
-                title: `Pinta Padel Tour: ${tourney.name}`,
-                text: text,
-                url: url
-            }).catch(() => {});
-        } else {
-            window.open(`https://www.messenger.com/`, '_blank');
-            alert('Inbjudningstexten och länken har kopierats till urklipp! Klistra bara in den i din Messenger-chatt eller grupp.');
+        if (!isUserOrganizerOf(tourney)) {
+            alert('Endast arrangören kan genomföra lottningen.');
+            return;
         }
-    }
 
-    function shareViaWhatsApp(tourney) {
-        const text = getInviteMessageText(tourney);
-        const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-        window.open(waUrl, '_blank');
-    }
+        // Slumpa spelarnas ordning 1..8 för rättvis lottning
+        const shuffledPlayers = [...tourney.players].sort(() => Math.random() - 0.5);
+        tourney.players = shuffledPlayers;
 
-    function copyTextToClipboard(text) {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            return navigator.clipboard.writeText(text);
-        } else {
-            const textarea = document.createElement('textarea');
-            textarea.value = text;
-            document.body.appendChild(textarea);
-            textarea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textarea);
-            return Promise.resolve();
-        }
-    }
+        const rounds = [];
+        SCHEDULE_MATRIX.forEach((roundData, rIndex) => {
+            const court1Pairs = roundData.court1;
+            const court2Pairs = roundData.court2;
 
-    // =========================================================================
-    // 9. LJUD & FIRANDE (WEB AUDIO API & CONFETTI)
-    // =========================================================================
-
-    function playAudioTone(freq, duration) {
-        try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, ctx.currentTime);
-            gain.gain.setValueAtTime(0.08, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start();
-            osc.stop(ctx.currentTime + duration);
-        } catch (e) {
-            // Web Audio ej tillgängligt
-        }
-    }
-
-    function playFanfare() {
-        const notes = [523.25, 659.25, 783.99, 1046.50];
-        notes.forEach((freq, idx) => {
-            setTimeout(() => playAudioTone(freq, 0.25), idx * 160);
+            rounds.push({
+                roundNumber: rIndex + 1,
+                matches: [
+                    {
+                        court: 1,
+                        team1: [shuffledPlayers[court1Pairs[0][0]], shuffledPlayers[court1Pairs[0][1]]],
+                        team2: [shuffledPlayers[court1Pairs[1][0]], shuffledPlayers[court1Pairs[1][1]]],
+                        score1: 0,
+                        score2: 0,
+                        completed: false
+                    },
+                    {
+                        court: 2,
+                        team1: [shuffledPlayers[court2Pairs[0][0]], shuffledPlayers[court2Pairs[0][1]]],
+                        team2: [shuffledPlayers[court2Pairs[1][0]], shuffledPlayers[court2Pairs[1][1]]],
+                        score1: 0,
+                        score2: 0,
+                        completed: false
+                    }
+                ]
+            });
         });
-    }
 
-    function showDrawCelebrationBanner() {
-        const banner = document.getElementById('drawCelebrationBanner');
-        if (banner) {
-            banner.style.display = 'flex';
-            setTimeout(() => {
-                banner.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 100);
-        }
-    }
+        tourney.rounds = rounds;
+        tourney.isDrawn = true;
+        tourney.status = 'active';
 
-    function celebrateWinner() {
-        const tourney = getActiveTournament();
-        if (!tourney) return;
-        const leaderboard = calculateLeaderboard(tourney);
-        if (leaderboard.length === 0) return;
-
-        const winner = leaderboard[0];
-
-        document.getElementById('podiumWinnerName').textContent = winner.name;
-        document.getElementById('podiumWinnerScore').textContent = 
-            `${winner.totalPoints} poäng · ${winner.wins} vinster · Diff: ${winner.pointDiff > 0 ? '+' : ''}${winner.pointDiff}`;
-        
-        openModal('modalPodium');
+        saveState();
+        renderApp();
         playFanfare();
-        startConfetti();
+        showToast('🎲 Lottningen är klar! Spelschemat är redo.');
     }
 
-    function startConfetti() {
-        const canvas = document.getElementById('confettiCanvas');
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-
-        const particles = [];
-        const colors = ['#00e676', '#00b4d8', '#ffd166', '#ff5252', '#ffffff'];
-
-        for (let i = 0; i < 120; i++) {
-            particles.push({
-                x: Math.random() * canvas.width,
-                y: Math.random() * -canvas.height,
-                r: Math.random() * 6 + 3,
-                d: Math.random() * 10 + 5,
-                color: colors[Math.floor(Math.random() * colors.length)],
-                tilt: Math.random() * 10 - 10,
-                tiltAngleIncremental: Math.random() * 0.07 + 0.05,
-                tiltAngle: 0
-            });
-        }
-
-        let frames = 0;
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            particles.forEach(p => {
-                p.tiltAngle += p.tiltAngleIncremental;
-                p.y += (Math.cos(p.d) + 3 + p.r / 2) / 1.5;
-                p.x += Math.sin(p.d);
-                p.tilt = Math.sin(p.tiltAngle - (frames / 3)) * 15;
-
-                ctx.beginPath();
-                ctx.lineWidth = p.r;
-                ctx.strokeStyle = p.color;
-                ctx.moveTo(p.x + p.tilt + p.r / 2, p.y);
-                ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 2);
-                ctx.stroke();
-            });
-
-            frames++;
-            if (frames < 240) {
-                requestAnimationFrame(draw);
-            } else {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+    /**
+     * Radera turnering – Fullständig nollställning och återgång till Startskärmen
+     */
+    function deleteTournament(tourneyId, permanent = false) {
+        if (permanent) {
+            const pIdx = appState.deletedTournaments.findIndex(t => t.id === tourneyId);
+            if (pIdx >= 0) {
+                appState.deletedTournaments.splice(pIdx, 1);
+                saveState();
+                renderArchiveModal();
+                playClick();
             }
+            return;
         }
 
-        draw();
+        const idx = appState.tournaments.findIndex(t => t.id === tourneyId);
+        if (idx < 0) return;
+
+        const tourney = appState.tournaments.splice(idx, 1)[0];
+        tourney.deletedAt = new Date().toISOString();
+        appState.deletedTournaments.unshift(tourney);
+
+        // Nollställ allt till startskärm
+        appState.activeTournamentId = null;
+
+        if (appState.currentUser && appState.currentUser.role === 'player') {
+            appState.currentUser = null;
+            saveUser();
+        }
+
+        try {
+            history.replaceState(null, '', window.location.pathname);
+        } catch (e) {}
+
+        document.title = 'Pinta Padel Tour – Turneringsmotor';
+
+        saveState();
+        renderApp();
+        playDelete();
+        showUndoToast(tourney);
+    }
+
+    function restoreTournament(tourneyId) {
+        const idx = appState.deletedTournaments.findIndex(t => t.id === tourneyId);
+        if (idx < 0) return;
+
+        const tourney = appState.deletedTournaments.splice(idx, 1)[0];
+        delete tourney.deletedAt;
+        appState.tournaments.unshift(tourney);
+        appState.activeTournamentId = tourney.id;
+
+        saveState();
+        initCloudSync();
+        renderApp();
+        switchView('viewPlayers');
+        playSuccess();
+        showToast(`↺ Turneringen "${tourney.name}" är återställd.`);
     }
 
     // =========================================================================
-    // 10. RENDERING & UI-UPPDATERING
+    // 7. RESULTAT & TABELLBERÄKNING
+    // =========================================================================
+
+    function calculateLeaderboard(tourney) {
+        if (!tourney || !tourney.players) return [];
+
+        const stats = {};
+        tourney.players.forEach(p => {
+            stats[p.id] = {
+                id: p.id,
+                name: p.name,
+                matchesPlayed: 0,
+                wins: 0,
+                losses: 0,
+                draws: 0,
+                pointsScored: 0,
+                pointsConceded: 0,
+                diff: 0,
+                totalPoints: 0
+            };
+        });
+
+        (tourney.rounds || []).forEach(r => {
+            (r.matches || []).forEach(m => {
+                if (m.completed) {
+                    const s1 = parseInt(m.score1, 10) || 0;
+                    const s2 = parseInt(m.score2, 10) || 0;
+
+                    m.team1.forEach(p => {
+                        if (!stats[p.id]) return;
+                        stats[p.id].matchesPlayed += 1;
+                        stats[p.id].pointsScored += s1;
+                        stats[p.id].pointsConceded += s2;
+                        if (s1 > s2) stats[p.id].wins += 1;
+                        else if (s1 < s2) stats[p.id].losses += 1;
+                        else stats[p.id].draws += 1;
+                    });
+
+                    m.team2.forEach(p => {
+                        if (!stats[p.id]) return;
+                        stats[p.id].matchesPlayed += 1;
+                        stats[p.id].pointsScored += s2;
+                        stats[p.id].pointsConceded += s1;
+                        if (s2 > s1) stats[p.id].wins += 1;
+                        else if (s2 < s1) stats[p.id].losses += 1;
+                        else stats[p.id].draws += 1;
+                    });
+                }
+            });
+        });
+
+        const list = Object.values(stats);
+        list.forEach(item => {
+            item.diff = item.pointsScored - item.pointsConceded;
+            // I Game-räkning är totalpoängen antalet vunna game
+            item.totalPoints = item.pointsScored;
+        });
+
+        // Sortering: Poäng -> Målskillnad -> Flest vinster -> Flest gjorda poäng
+        list.sort((a, b) => {
+            if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+            if (b.diff !== a.diff) return b.diff - a.diff;
+            if (b.wins !== a.wins) return b.wins - a.wins;
+            return b.pointsScored - a.pointsScored;
+        });
+
+        return list;
+    }
+
+    function saveMatchScore(courtIndex) {
+        const tourney = getActiveTournament();
+        if (!tourney || !tourney.rounds || !tourney.rounds[appState.currentRoundIndex]) return;
+
+        const round = tourney.rounds[appState.currentRoundIndex];
+        const match = round.matches[courtIndex];
+        if (!match) return;
+
+        const input1 = document.getElementById(`court${courtIndex + 1}Score1`);
+        const input2 = document.getElementById(`court${courtIndex + 1}Score2`);
+
+        const s1 = Math.max(0, parseInt(input1.value, 10) || 0);
+        const s2 = Math.max(0, parseInt(input2.value, 10) || 0);
+
+        match.score1 = s1;
+        match.score2 = s2;
+        match.completed = true;
+
+        saveState();
+        renderApp();
+        playScoreSaved();
+        showToast(`Bana ${courtIndex + 1} sparad: ${s1} – ${s2}`);
+    }
+
+    // =========================================================================
+    // 8. RENDERING & UI-UPPDATERINGAR
     // =========================================================================
 
     function renderApp() {
         const tourney = getActiveTournament();
 
-        updateDocumentMetadata(tourney);
+        const elHeaderTitle = document.getElementById('headerTourneyTitle');
+        const elHeaderSub = document.getElementById('headerTourneySub');
+        const elBottomNav = document.getElementById('bottomNav');
+        const elStartScreen = document.getElementById('viewStartScreen');
 
-        const elBannerOrg = document.getElementById('bannerOrganizerBadge');
-        const elBannerName = document.getElementById('bannerOrganizerName');
-        const elLobbyBar = document.getElementById('lobbyOrganizerBar');
-        const elLobbyName = document.getElementById('lobbyOrganizerNameText');
-        const btnBannerDraw = document.getElementById('btnBannerDraw');
+        // 1. Startskärm vs Aktiv Turnering
+        if (!tourney) {
+            elStartScreen.style.display = 'flex';
+            document.querySelectorAll('.app-view').forEach(v => v.style.display = 'none');
+            if (elBottomNav) elBottomNav.style.display = 'none';
 
-        const bannerEl = document.getElementById('tournamentBanner');
-        const navTabsEl = document.getElementById('mainNavTabs');
-        const contentEl = document.getElementById('contentContainer');
-        const emptyStateEl = document.getElementById('emptyStateContainer');
-        const drawCelebration = document.getElementById('drawCelebrationBanner');
-        const guestBanner = document.getElementById('guestModeBanner');
+            if (elHeaderTitle) elHeaderTitle.textContent = 'Pinta Padel';
+            if (elHeaderSub) elHeaderSub.textContent = 'Ingen aktiv turnering';
 
-        if (tourney) {
-            if (bannerEl) bannerEl.style.display = 'flex';
-            if (navTabsEl) navTabsEl.style.display = '';
-            if (contentEl) contentEl.style.display = 'block';
-            if (emptyStateEl) emptyStateEl.style.display = 'none';
-
-            document.getElementById('activeTournamentTitle').textContent = tourney.name;
-            const badge = document.getElementById('activeTournamentBadge');
-
-            const playerCount = tourney.players ? tourney.players.length : 0;
-            const tabCount = document.getElementById('tabLobbyPlayerCount');
-            if (tabCount) tabCount.textContent = playerCount;
-
-            const isOrg = isUserOrganizerOf(tourney);
-            const orgName = (tourney.organizer && tourney.organizer.name && tourney.organizer.name.trim()) 
-                ? tourney.organizer.name.trim() 
-                : '';
-
-            if (orgName) {
-                if (elBannerOrg) elBannerOrg.style.display = 'inline-flex';
-                if (elBannerName) elBannerName.textContent = orgName;
-                if (elLobbyBar) elLobbyBar.style.display = 'flex';
-                if (elLobbyName) elLobbyName.textContent = orgName;
-            } else {
-                if (elBannerOrg) elBannerOrg.style.display = 'none';
-                if (elLobbyBar) elLobbyBar.style.display = 'none';
-            }
-
-            const isDrawn = tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0);
-            const isFullOrDrawn = playerCount >= 8 || isDrawn;
-
-            // Dölj inbjudningsknappen i bannern när turneringen är full (8 spelare) eller lottad
-            const btnShareTourney = document.getElementById('btnShareTournament');
-            if (btnShareTourney) {
-                btnShareTourney.style.display = isFullOrDrawn ? 'none' : 'inline-flex';
-            }
-
-            if (tourney.status === 'lobby' && !isDrawn && playerCount < 8) {
-                if (btnBannerDraw) btnBannerDraw.style.display = 'none';
-                badge.textContent = `🟡 Väntrum (${playerCount}/8 spelare)`;
-                badge.style.color = 'var(--warning)';
-                badge.style.borderColor = 'rgba(255, 183, 3, 0.4)';
-                badge.style.background = 'rgba(255, 183, 3, 0.12)';
-                document.getElementById('activeTournamentMeta').textContent = 
-                    `${8 - playerCount} platser kvar · Bjud in spelare via Messenger, WhatsApp eller länk`;
-            } else if (playerCount === 8 && !isDrawn) {
-                if (btnBannerDraw) btnBannerDraw.style.display = 'inline-flex';
-                badge.textContent = `🟡 8/8 anmälda · Redo för lottning`;
-                badge.style.color = 'var(--warning)';
-                badge.style.borderColor = 'rgba(255, 183, 3, 0.4)';
-                badge.style.background = 'rgba(255, 183, 3, 0.12)';
-                document.getElementById('activeTournamentMeta').textContent = 
-                    `Alla 8 spelare är anmälda! ${isOrg ? 'Klicka på "Lotta spelordning" för att starta.' : 'Väntar på att arrangören ska lotta.'}`;
-            } else {
-                if (btnBannerDraw) btnBannerDraw.style.display = 'none';
-                badge.textContent = tourney.format === 'option1' 
-                    ? 'Lag-serie (7 omgångar × 3 matcher)' 
-                    : 'Bana-rotation (4 på samma bana)';
-                badge.style.color = 'var(--accent-blue)';
-                badge.style.borderColor = 'rgba(0, 180, 216, 0.3)';
-                badge.style.background = 'rgba(0, 180, 216, 0.15)';
-
-                const totalMatches = (tourney.rounds || []).flatMap(r => r.matches || []).length;
-                const doneMatches = (tourney.rounds || []).flatMap(r => r.matches || []).filter(m => m.completed).length;
-                document.getElementById('activeTournamentMeta').textContent = 
-                    `Lottningen är gjord · ${doneMatches} av ${totalMatches} matcher spelade · Status: ${tourney.status === 'completed' ? '🏆 Avslutad' : '🟢 Pågår'}`;
-            }
-
-            renderLobbyView(tourney);
-            renderLeaderboard(tourney);
-            renderMatches(tourney);
-
-        } else {
-            // Nollställt läge: Dölj turneringsbanner och flikar, visa startskärmen
-            if (bannerEl) bannerEl.style.display = 'none';
-            if (navTabsEl) navTabsEl.style.display = 'none';
-            if (contentEl) contentEl.style.display = 'none';
-            if (emptyStateEl) emptyStateEl.style.display = 'block';
-            if (drawCelebration) drawCelebration.style.display = 'none';
-            if (guestBanner) guestBanner.style.display = 'none';
-
-            // Uppdatera arkiv-räknaren på startskärmen om sparade turneringar finns
-            const totalHistoryCount = appState.tournaments.length + (appState.deletedTournaments ? appState.deletedTournaments.length : 0);
-            const btnEmptyArchive = document.getElementById('btnEmptyShowArchive');
-            const emptyCountEl = document.getElementById('emptyStateArchiveCount');
-            if (btnEmptyArchive) {
-                if (totalHistoryCount > 0) {
-                    btnEmptyArchive.style.display = 'inline-flex';
-                    if (emptyCountEl) emptyCountEl.textContent = totalHistoryCount;
+            const totalSaved = appState.tournaments.length + appState.deletedTournaments.length;
+            const btnArchive = document.getElementById('btnStartArchive');
+            const countEl = document.getElementById('startArchiveCount');
+            if (btnArchive) {
+                if (totalSaved > 0) {
+                    btnArchive.style.display = 'block';
+                    if (countEl) countEl.textContent = totalSaved;
                 } else {
-                    btnEmptyArchive.style.display = 'none';
+                    btnArchive.style.display = 'none';
                 }
             }
-
-            if (elBannerOrg) elBannerOrg.style.display = 'none';
-            if (elLobbyBar) elLobbyBar.style.display = 'none';
-            if (btnBannerDraw) btnBannerDraw.style.display = 'none';
-            const btnShareTourney = document.getElementById('btnShareTournament');
-            if (btnShareTourney) btnShareTourney.style.display = 'none';
-            const tabCount = document.getElementById('tabLobbyPlayerCount');
-            if (tabCount) tabCount.textContent = '0';
-        }
-
-        renderHistory();
-        renderUserStatus();
-    }
-
-    /**
-     * Rendera Väntrum & 8 Spelarplatser & Manuell Lottningsknapp
-     */
-    function renderLobbyView(tourney) {
-        const playerCount = tourney.players ? tourney.players.length : 0;
-        const percent = Math.min(100, Math.round((playerCount / 8) * 100));
-
-        document.getElementById('lobbyProgressBar').style.width = `${percent}%`;
-        document.getElementById('lobbyCountBadge').textContent = `${playerCount} av 8 platser fyllda (${percent}%)`;
-        
-        const statusText = document.getElementById('lobbyProgressStatusText');
-        const drawBox = document.getElementById('drawActionBox');
-        const btnDraw = document.getElementById('btnDrawSchedule');
-        const btnGoMatches = document.getElementById('btnGoToMatchesFromLobby');
-        const drawIcon = document.getElementById('drawActionIcon');
-        const drawTitle = document.getElementById('drawActionTitle');
-        const drawDesc = document.getElementById('drawActionDesc');
-        const isDrawn = tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0);
-
-        if (playerCount < 8) {
-            statusText.textContent = `${8 - playerCount} lediga platser. Bjud in vänner via Messenger, WhatsApp eller direktlänk.`;
-            drawBox.classList.add('disabled');
-            drawIcon.textContent = '⏳';
-            drawTitle.textContent = 'Lottning av Spelordning';
-            drawDesc.textContent = `Kräver att alla 8 platser ska fyllas innan lottningsknappen aktiveras (just nu ${playerCount} av 8).`;
-            btnDraw.disabled = true;
-            btnDraw.style.opacity = '0.5';
-            btnDraw.style.cursor = 'not-allowed';
-            btnDraw.className = 'btn btn-secondary btn-lg';
-            btnDraw.innerHTML = `<span>🎲</span> Lotta spelordning (${playerCount}/8)`;
-            if (btnGoMatches) btnGoMatches.style.display = 'none';
-        } else if (!isDrawn) {
-            statusText.textContent = `Alla 8 platser är fyllda! Klicka på lottningsknappen för att genomföra lottningen.`;
-            drawBox.classList.remove('disabled');
-            drawIcon.textContent = '🎲';
-            drawTitle.textContent = 'Alla 8 spelare är anmälda! Redo för lottning';
-            drawDesc.textContent = 'Klicka på knappen nedan för att slumpa spelordningen och starta spelschemat.';
-            btnDraw.disabled = false;
-            btnDraw.style.opacity = '1';
-            btnDraw.style.cursor = 'pointer';
-            btnDraw.className = 'btn btn-primary btn-lg';
-            btnDraw.innerHTML = `<span>🎲</span> Lotta spelordning nu! 🎾`;
-            if (btnGoMatches) btnGoMatches.style.display = 'none';
-        } else {
-            statusText.textContent = `Lottningen är genomförd och turneringen är aktiv!`;
-            drawBox.classList.remove('disabled');
-            drawIcon.textContent = '🔒';
-            drawTitle.textContent = 'Lottningen är gjord';
-            drawDesc.textContent = 'Spelordningen har lottats och är låst för denna turnering. Klicka på "Visa spelschema" för att se matcherna på Bana 1 & 2.';
-            btnDraw.disabled = true;
-            btnDraw.style.opacity = '0.4';
-            btnDraw.style.cursor = 'not-allowed';
-            btnDraw.className = 'btn btn-secondary btn-lg';
-            btnDraw.innerHTML = `<span>🔒</span> Lottning genomförd`;
-            if (btnGoMatches) btnGoMatches.style.display = 'inline-flex';
-        }
-
-        const grid = document.getElementById('lobbySlotsGrid');
-        grid.innerHTML = '';
-
-        for (let i = 0; i < 8; i++) {
-            const player = tourney.players && tourney.players[i] ? tourney.players[i] : null;
-            const card = document.createElement('div');
-
-            if (player) {
-                const pName = typeof player === 'string' ? player : player.name;
-                const pPin = typeof player === 'object' && player.pin ? player.pin : '';
-                const avatarLetter = (pName || '?').charAt(0).toUpperCase();
-
-                const isOrganizer = isUserOrganizerOf(tourney);
-                const isSelf = appState.currentUser && appState.currentUser.name && 
-                    (appState.currentUser.name.toLowerCase() === pName.toLowerCase());
-                const isThisPlayerOrganizer = tourney.organizer && tourney.organizer.name && 
-                    (pName.toLowerCase() === tourney.organizer.name.toLowerCase());
-
-                // Sekretess för PIN-koder:
-                // - Spelaren själv ser sin kod: "🔑 Min kod: 4218"
-                // - Arrangören ser spelarens kod: "🔑 Kod: 4218" (så arrangören kan hjälpa spelare som glömt)
-                // - Andra spelare och besökare ser INTE koden, bara "✓ Anmäld"
-                let pinBadgeHtml = '';
-                if (pPin) {
-                    if (isSelf) {
-                        pinBadgeHtml = `<span class="pin-badge own-pin" title="Din personliga inloggningskod">🔑 Min kod: ${escapeHtml(pPin)}</span>`;
-                    } else if (isOrganizer) {
-                        pinBadgeHtml = `<span class="pin-badge admin-view" title="Spelarens inloggningskod (syns endast för dig som arrangör)">🔑 Kod: ${escapeHtml(pPin)}</span>`;
-                    } else {
-                        pinBadgeHtml = `<span class="status-badge-ready">✓ Anmäld</span>`;
-                    }
-                } else {
-                    pinBadgeHtml = `<span class="status-badge-ready">✓ Anmäld</span>`;
-                }
-
-                const canRemove = !isDrawn && (isOrganizer || isSelf);
-
-                card.className = 'slot-card occupied' + (isSelf ? ' is-current-user' : '');
-                card.innerHTML = `
-                    <div class="slot-left">
-                        <div class="slot-avatar">${escapeHtml(avatarLetter)}</div>
-                        <div class="slot-info">
-                            <div class="slot-name">
-                                <span class="slot-player-text">${escapeHtml(pName)}</span>
-                                ${isSelf ? '<span class="badge-du">DU</span>' : ''}
-                                ${isThisPlayerOrganizer ? '<span class="badge-org-pill" title="Turneringens arrangör">👑 Arrangör</span>' : ''}
-                            </div>
-                            <div class="slot-meta">
-                                <span>Plats ${i + 1}</span>
-                                ${pinBadgeHtml}
-                            </div>
-                        </div>
-                    </div>
-                    ${canRemove ? `<button type="button" class="btn-remove-slot" title="${isSelf ? 'Lämna din plats' : 'Ta bort spelare (arrangör)'}" data-index="${i}">✕</button>` : ''}
-                `;
-
-                if (canRemove) {
-                    const removeBtn = card.querySelector('.btn-remove-slot');
-                    if (removeBtn) {
-                        removeBtn.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            const confirmMsg = isSelf 
-                                ? `Vill du lämna din plats (${pName}) i turneringen?`
-                                : `Vill du ta bort "${pName}" från turneringen?`;
-                            if (confirm(confirmMsg)) {
-                                removePlayer(tourney, i);
-                            }
-                        });
-                    }
-                }
-
-            } else {
-                const isOrganizer = isUserOrganizerOf(tourney);
-                card.className = 'slot-card vacant';
-                card.innerHTML = `
-                    <div class="slot-left">
-                        <div class="slot-avatar vacant">${i + 1}</div>
-                        <div class="slot-info">
-                            <div class="slot-vacant-text">Plats ${i + 1}: Ledig</div>
-                            <div class="slot-meta">Väntar på anmälan...</div>
-                        </div>
-                    </div>
-                    ${isOrganizer ? `
-                    <button type="button" class="btn btn-secondary btn-sm btn-manual-add" data-index="${i}">
-                        ➕ Lägg till
-                    </button>` : ''}
-                `;
-
-                if (isOrganizer) {
-                    const addBtn = card.querySelector('.btn-manual-add');
-                    if (addBtn) {
-                        addBtn.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            document.getElementById('manualSlotIndex').value = i;
-                            document.getElementById('manualPlayerName').value = '';
-
-                            // Hämta registrerade spelare som INTE redan är med i denna turnering
-                            const currentNames = (tourney.players || []).map(p => (typeof p === 'string' ? p : p.name).toLowerCase());
-                            const availableReg = (appState.registeredPlayers || []).filter(rp => {
-                                const rName = (rp.name || '').toLowerCase();
-                                return !currentNames.includes(rName);
-                            });
-
-                            const boxExisting = document.getElementById('boxExistingRegisteredPlayers');
-                            const selectExisting = document.getElementById('selectExistingPlayer');
-
-                            if (boxExisting && selectExisting) {
-                                if (availableReg.length > 0) {
-                                    boxExisting.style.display = 'block';
-                                    selectExisting.innerHTML = availableReg.map(p => 
-                                        `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`
-                                    ).join('');
-                                } else {
-                                    boxExisting.style.display = 'none';
-                                }
-                            }
-
-                            openModal('modalManualPlayer');
-                        });
-                    }
-                }
-            }
-
-            grid.appendChild(card);
-        }
-
-        const isUserRegistered = appState.currentUser && tourney.players.some(p => {
-            const pName = typeof p === 'string' ? p : p.name;
-            return pName.toLowerCase() === appState.currentUser.name.toLowerCase();
-        });
-
-        const alreadyNotice = document.getElementById('alreadyRegisteredNotice');
-        const formQuickReg = document.getElementById('formQuickRegisterName');
-
-        if (isUserRegistered) {
-            if (alreadyNotice) {
-                alreadyNotice.style.display = 'block';
-                const myPin = appState.currentUser.pin;
-                document.getElementById('alreadyRegisteredDetails').innerHTML = 
-                    `Du är anmäld som <strong>${escapeHtml(appState.currentUser.name)}</strong>${myPin ? ` (Din personliga kod är <span class="pin-badge">🔑 ${escapeHtml(myPin)}</span>)` : ''}. När alla 8 platser fyllts genomförs lottningen!`;
-            }
-            if (formQuickReg) formQuickReg.style.display = 'none';
-        } else if (playerCount >= 8) {
-            if (alreadyNotice) {
-                alreadyNotice.style.display = 'block';
-                document.getElementById('alreadyRegisteredDetails').textContent = 
-                    `Turneringen är fulltecknad (8/8 spelare). Du kan följa tabellen och matcherna live!`;
-            }
-            if (formQuickReg) formQuickReg.style.display = 'none';
-        } else {
-            if (alreadyNotice) alreadyNotice.style.display = 'none';
-            if (formQuickReg) formQuickReg.style.display = 'block';
-        }
-
-        // Dölj "Bjud in spelare till turneringen" när turneringen är full med 8 spelare eller lottad
-        const inviteCard = document.getElementById('invitePlayersCard');
-        if (inviteCard) {
-            inviteCard.style.display = (playerCount >= 8 || isDrawn) ? 'none' : 'block';
-        }
-    }
-
-    /**
-     * Rendera Tabell & Liveresultat (Visas även för icke inloggade besökare)
-     */
-    function renderLeaderboard(tourney) {
-        const lockedBanner = document.getElementById('leaderboardLockedBanner');
-        const activeContent = document.getElementById('leaderboardActiveContent');
-        const lockedCount = document.getElementById('lockedCountText');
-
-        const playerCount = tourney.players ? tourney.players.length : 0;
-
-        if (tourney.status === 'lobby' || playerCount < 8 || !tourney.rounds || tourney.rounds.length === 0) {
-            lockedBanner.style.display = 'block';
-            activeContent.style.display = 'none';
-            lockedCount.textContent = `${playerCount} av 8`;
+            renderUserStatus();
             return;
         }
 
-        lockedBanner.style.display = 'none';
-        activeContent.style.display = 'block';
+        // Aktiv turnering finns
+        elStartScreen.style.display = 'none';
+        if (elBottomNav) elBottomNav.style.display = 'flex';
 
-        // Anpassa kolumnrubriker dynamiskt för Game-räkning vs 32p/24p
-        const thScoreCol = document.getElementById('thScoreCol');
-        const thDiffCol = document.getElementById('thDiffCol');
-        const thPointsCol = document.getElementById('thPointsCol');
+        if (elHeaderTitle) elHeaderTitle.textContent = tourney.name;
+        if (elHeaderSub) {
+            elHeaderSub.textContent = tourney.format === 'option1' 
+                ? 'Lag-serie (7 omgångar)' 
+                : 'Bana-rotation';
+        }
 
-        const isGames = (tourney.pointSystem || 'games') === 'games';
-        if (thScoreCol) thScoreCol.textContent = isGames ? 'Game (V - F)' : 'Bollar (G - I)';
-        if (thDiffCol) thDiffCol.textContent = isGames ? 'Diff' : 'Diff';
-        if (thPointsCol) thPointsCol.textContent = isGames ? 'Vunna Game' : (tourney.pointSystem === 'points24' ? 'Totalpoäng (24p)' : 'Totalpoäng (32p)');
+        renderUserStatus();
+        renderPlayersView(tourney);
+        renderMatchesView(tourney);
+        renderTableView(tourney);
+        renderMenuView(tourney);
+    }
 
+    function renderUserStatus() {
+        const btnUser = document.getElementById('btnUserHeader');
+        const iconEl = document.getElementById('headerUserIcon');
+        const nameEl = document.getElementById('headerUserName');
+
+        if (appState.currentUser) {
+            if (iconEl) iconEl.textContent = appState.currentUser.role === 'admin' ? '👑' : '🎾';
+            if (nameEl) nameEl.textContent = appState.currentUser.name;
+        } else {
+            if (iconEl) iconEl.textContent = '👤';
+            if (nameEl) nameEl.textContent = 'Logga in';
+        }
+    }
+
+    /**
+     * Flik 1: Spelare
+     */
+    function renderPlayersView(tourney) {
+        const count = tourney.players.length;
+        const percent = Math.min(100, Math.round((count / 8) * 100));
+
+        const badge = document.getElementById('playerCountBadge');
+        const bar = document.getElementById('playerProgressBar');
+        const navBadge = document.getElementById('navPlayerBadge');
+
+        if (badge) badge.textContent = `${count} av 8 anmälda`;
+        if (bar) bar.style.width = `${percent}%`;
+        if (navBadge) navBadge.textContent = `${count}/8`;
+
+        const rosterEl = document.getElementById('rosterList');
+        if (!rosterEl) return;
+        rosterEl.innerHTML = '';
+
+        const isOrg = isUserOrganizerOf(tourney);
+
+        for (let i = 0; i < 8; i++) {
+            const player = tourney.players[i];
+            const row = document.createElement('div');
+            row.className = 'roster-slot-row';
+
+            if (player) {
+                row.innerHTML = `
+                    <div class="slot-left">
+                        <span class="slot-index">${i + 1}</span>
+                        <span class="slot-name">${escapeHtml(player.name)}</span>
+                    </div>
+                    <div class="slot-badges">
+                        ${player.isOrganizer ? '<span class="badge-organizer">Arrangör</span>' : ''}
+                        ${(!tourney.isDrawn && isOrg) ? `<button type="button" class="btn-remove-player" data-idx="${i}" title="Ta bort">✕</button>` : ''}
+                    </div>
+                `;
+            } else {
+                row.innerHTML = `
+                    <div class="slot-left">
+                        <span class="slot-index">${i + 1}</span>
+                        <span class="slot-empty-text">Ledig plats</span>
+                    </div>
+                    <button type="button" class="btn-take-slot" data-slot="${i}">
+                        + Ta plats
+                    </button>
+                `;
+            }
+            rosterEl.appendChild(row);
+        }
+
+        // Länkdelning: döljs om 8/8 eller lottad
+        const inviteStrip = document.getElementById('inviteStrip');
+        if (inviteStrip) {
+            inviteStrip.style.display = (count >= 8 || tourney.isDrawn) ? 'none' : 'flex';
+        }
+
+        // Lottningshandling
+        const btnDraw = document.getElementById('btnDrawSchedule');
+        const drawnNotice = document.getElementById('drawnStatusNotice');
+
+        if (tourney.isDrawn) {
+            if (btnDraw) btnDraw.style.display = 'none';
+            if (drawnNotice) drawnNotice.style.display = 'flex';
+        } else {
+            if (drawnNotice) drawnNotice.style.display = 'none';
+            if (btnDraw) {
+                btnDraw.style.display = 'block';
+                if (count === 8) {
+                    btnDraw.disabled = false;
+                    btnDraw.textContent = '🎲 Lotta spelschema';
+                } else {
+                    btnDraw.disabled = true;
+                    btnDraw.textContent = `Lotta spelschema (${8 - count} platser kvar)`;
+                }
+            }
+        }
+    }
+
+    /**
+     * Flik 2: Matcher
+     */
+    function renderMatchesView(tourney) {
+        const notDrawnBox = document.getElementById('notDrawnBox');
+        const activeContainer = document.getElementById('matchesActiveContainer');
+        const roundPicker = document.getElementById('roundPicker');
+
+        if (!tourney.isDrawn || !tourney.rounds || tourney.rounds.length === 0) {
+            if (notDrawnBox) notDrawnBox.style.display = 'block';
+            if (activeContainer) activeContainer.style.display = 'none';
+            return;
+        }
+
+        if (notDrawnBox) notDrawnBox.style.display = 'none';
+        if (activeContainer) activeContainer.style.display = 'flex';
+
+        // Uppdatera piller
+        document.querySelectorAll('.round-pill').forEach((pill, idx) => {
+            pill.classList.toggle('active', idx === appState.currentRoundIndex);
+        });
+
+        const round = tourney.rounds[appState.currentRoundIndex];
+        if (!round || !round.matches) return;
+
+        // Rendera Bana 1 & Bana 2
+        round.matches.forEach((m, cIdx) => {
+            const card = document.getElementById(`courtCard${cIdx + 1}`);
+            const statusEl = document.getElementById(`courtStatus${cIdx + 1}`);
+            const t1Names = document.getElementById(`court${cIdx + 1}Team1Names`);
+            const t2Names = document.getElementById(`court${cIdx + 1}Team2Names`);
+            const s1Input = document.getElementById(`court${cIdx + 1}Score1`);
+            const s2Input = document.getElementById(`court${cIdx + 1}Score2`);
+            const row1 = document.getElementById(`court${cIdx + 1}Team1Row`);
+            const row2 = document.getElementById(`court${cIdx + 1}Team2Row`);
+
+            if (t1Names) t1Names.textContent = `${m.team1[0].name} & ${m.team1[1].name}`;
+            if (t2Names) t2Names.textContent = `${m.team2[0].name} & ${m.team2[1].name}`;
+
+            if (s1Input && document.activeElement !== s1Input) s1Input.value = m.score1;
+            if (s2Input && document.activeElement !== s2Input) s2Input.value = m.score2;
+
+            if (card) card.classList.toggle('completed', m.completed);
+            if (statusEl) statusEl.textContent = m.completed ? '✓ Klar' : 'Pågående';
+
+            if (row1 && row2) {
+                row1.classList.toggle('winner', m.completed && m.score1 > m.score2);
+                row2.classList.toggle('winner', m.completed && m.score2 > m.score1);
+            }
+        });
+    }
+
+    /**
+     * Flik 3: Tabell
+     */
+    function renderTableView(tourney) {
         const tbody = document.getElementById('leaderboardBody');
+        if (!tbody) return;
         tbody.innerHTML = '';
 
         const leaderboard = calculateLeaderboard(tourney);
+        if (leaderboard.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="padding:24px;color:var(--text-muted);">Inga spelare anmälda än.</td></tr>';
+            return;
+        }
 
-        leaderboard.forEach((player, index) => {
+        leaderboard.forEach((item, index) => {
             const tr = document.createElement('tr');
-            
-            let rankDisplay = `${index + 1}`;
-            if (index === 0) rankDisplay = `<span class="rank-badge rank-1">🥇</span>`;
-            else if (index === 1) rankDisplay = `<span class="rank-badge rank-2">🥈</span>`;
-            else if (index === 2) rankDisplay = `<span class="rank-badge rank-3">🥉</span>`;
-            else rankDisplay = `<span style="display:inline-block;width:32px;text-align:center;font-weight:700;">${index + 1}</span>`;
+            let rankClass = '';
+            let rankDisplay = index + 1;
+            if (index === 0) { rankClass = 'rank-gold'; rankDisplay = '🥇'; }
+            else if (index === 1) { rankClass = 'rank-silver'; rankDisplay = '🥈'; }
+            else if (index === 2) { rankClass = 'rank-bronze'; rankDisplay = '🥉'; }
 
-            let diffClass = 'diff-zero';
-            let diffPrefix = '';
-            if (player.pointDiff > 0) {
-                diffClass = 'diff-positive';
-                diffPrefix = '+';
-            } else if (player.pointDiff < 0) {
-                diffClass = 'diff-negative';
-            }
-
-            const isOrgPlayer = tourney.organizer && tourney.organizer.name && 
-                (player.name.toLowerCase() === tourney.organizer.name.toLowerCase());
+            const diffDisplay = item.diff > 0 ? `+${item.diff}` : item.diff;
 
             tr.innerHTML = `
-                <td class="rank-cell">${rankDisplay}</td>
-                <td class="player-name-cell">${escapeHtml(player.name)} ${isOrgPlayer ? '<span title="Turneringens arrangör" style="font-size: 11.5px; margin-left: 4px;">👑</span>' : ''}</td>
-                <td style="text-align:center;">${player.matchesPlayed}</td>
-                <td style="text-align:center;color:var(--primary);font-weight:700;">${player.wins}</td>
-                <td style="text-align:center;color:var(--text-muted);">${player.losses}</td>
-                <td style="text-align:center;">${player.pointsScored} - ${player.pointsConceded}</td>
-                <td style="text-align:center;" class="${diffClass}">${diffPrefix}${player.pointDiff}</td>
-                <td class="points-cell" style="text-align:right;">${player.totalPoints}</td>
+                <td class="col-rank ${rankClass}">${rankDisplay}</td>
+                <td class="col-player">${escapeHtml(item.name)}</td>
+                <td class="col-stat text-center">${item.matchesPlayed}</td>
+                <td class="col-stat text-center">${diffDisplay}</td>
+                <td class="col-points text-right">${item.totalPoints}</td>
             `;
-
             tbody.appendChild(tr);
         });
     }
 
     /**
-     * Rendera Spelschema & Omgångar (Visas även för icke inloggade besökare)
+     * Flik 4: Meny
      */
-    function renderMatches(tourney) {
-        const lockedBanner = document.getElementById('matchesLockedBanner');
-        const activeContent = document.getElementById('matchesActiveContent');
-
-        const playerCount = tourney.players ? tourney.players.length : 0;
-
-        if (tourney.status === 'lobby' || playerCount < 8 || !tourney.rounds || tourney.rounds.length === 0) {
-            lockedBanner.style.display = 'block';
-            activeContent.style.display = 'none';
-            return;
-        }
-
-        lockedBanner.style.display = 'none';
-        activeContent.style.display = 'block';
-
-        const btnReDraw = document.getElementById('btnReDrawSchedule');
-        if (btnReDraw) {
-            btnReDraw.style.display = 'none';
-        }
-
-        const roundPillsContainer = document.getElementById('roundPillsContainer');
-        roundPillsContainer.innerHTML = '';
-
-        tourney.rounds.forEach((round, rIndex) => {
-            const allDone = (round.matches || []).every(m => m.completed);
-            const pill = document.createElement('button');
-            pill.className = `round-pill ${rIndex === currentSelectedRound ? 'active' : ''} ${allDone ? 'completed' : ''}`;
-            pill.textContent = `Omgång ${round.roundNumber}`;
-            pill.addEventListener('click', () => {
-                currentSelectedRound = rIndex;
-                renderMatches(tourney);
-            });
-            roundPillsContainer.appendChild(pill);
-        });
-
-        const round = tourney.rounds[currentSelectedRound];
-        if (!round) return;
-
-        const court1Matches = (round.matches || []).filter(m => m.courtIndex === 1);
-        const court2Matches = (round.matches || []).filter(m => m.courtIndex === 2);
-
-        document.getElementById('court1Matches').innerHTML = court1Matches.map(m => createMatchHtml(m)).join('');
-        document.getElementById('court2Matches').innerHTML = court2Matches.map(m => createMatchHtml(m)).join('');
-
-        document.querySelectorAll('.match-item').forEach(el => {
-            el.addEventListener('click', () => {
-                const matchId = el.getAttribute('data-match-id');
-                openScoreModal(matchId);
-            });
-        });
-    }
-
-    function createMatchHtml(match) {
-        const team1Names = match.team1.players.map(p => escapeHtml(p)).join(' & ');
-        const team2Names = match.team2.players.map(p => escapeHtml(p)).join(' & ');
-        
-        let scoreHtml = '';
-        if (match.completed) {
-            scoreHtml = `<div class="score-display">${match.score1} - ${match.score2}</div>`;
-        } else {
-            if (appState.currentUser) {
-                scoreHtml = `<div class="score-pending">Mata in resultat →</div>`;
-            } else {
-                scoreHtml = `<div class="score-pending" style="color:var(--accent-blue);font-size:12px;">Ej spelad · Logga in 🔒</div>`;
-            }
-        }
-
-        return `
-            <div class="match-item ${match.completed ? 'done' : ''}" data-match-id="${match.id}">
-                <div class="match-item-header">
-                    <span>${match.slotLabel || 'Match'}</span>
-                    <span class="match-status-badge ${match.completed ? 'status-done' : 'status-pending'}">
-                        ${match.completed ? 'Klar' : 'Ej spelad'}
-                    </span>
-                </div>
-                <div class="match-teams-grid">
-                    <div class="team-box">
-                        <div class="team-players">${team1Names}</div>
-                    </div>
-                    <div style="text-align:center;">
-                        ${scoreHtml}
-                    </div>
-                    <div class="team-box" style="text-align:right;">
-                        <div class="team-players">${team2Names}</div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    /**
-     * Rendera Turneringsarkiv & Papperskorg
-     */
-    function renderHistory() {
-        const historyContainer = document.getElementById('historyListContainer');
-        const trashContainer = document.getElementById('trashListContainer');
-        const activeCountEl = document.getElementById('archiveActiveCount');
-        const trashCountEl = document.getElementById('archiveTrashCount');
-        const tabCountEl = document.getElementById('tabHistoryCount');
-
-        const activeCount = appState.tournaments.length;
-        const trashCount = appState.deletedTournaments ? appState.deletedTournaments.length : 0;
-
-        if (activeCountEl) activeCountEl.textContent = activeCount;
-        if (trashCountEl) trashCountEl.textContent = trashCount;
-        if (tabCountEl) tabCountEl.textContent = activeCount;
-
-        const btnBackToStart = document.getElementById('btnBackToStartFromArchive');
-        if (btnBackToStart) {
-            const active = getActiveTournament();
-            btnBackToStart.textContent = active ? '← Tillbaka till turneringen' : '← Tillbaka till startskärmen';
-        }
-
-        // 1. Rendera aktiva turneringar
-        historyContainer.innerHTML = '';
-        if (activeCount === 0) {
-            historyContainer.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:24px;">Inga sparade aktiva turneringar ännu.</p>';
-        } else {
-            appState.tournaments.forEach(tourney => {
-                const leaderboard = calculateLeaderboard(tourney);
-                const winner = leaderboard.length > 0 && tourney.status === 'completed' ? leaderboard[0] : null;
-                const pCount = tourney.players ? tourney.players.length : 0;
-
-                const card = document.createElement('div');
-                card.className = 'history-card';
-                card.innerHTML = `
-                    <div>
-                        <div class="history-name">${escapeHtml(tourney.name)}</div>
-                        <div class="history-meta">
-                            <span>📅 ${new Date(tourney.createdAt).toLocaleDateString('sv-SE')}</span>
-                            <span>🎾 ${tourney.format === 'option1' ? 'Lag-serie' : 'Bana-rotation'}</span>
-                            <span>👥 ${pCount}/8 spelare</span>
-                            <span>${tourney.status === 'completed' ? '🏆 Avslutad' : tourney.status === 'active' ? '🟢 Pågår' : '🟡 Väntrum'}</span>
-                        </div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:10px;">
-                        ${winner ? `<div class="history-winner">🏆 <span>${escapeHtml(winner.name)}</span></div>` : ''}
-                        <button type="button" class="btn btn-secondary btn-sm select-tourney-btn" data-id="${tourney.id}">
-                            ${tourney.id === appState.activeTournamentId ? 'Aktiv' : 'Öppna'}
-                        </button>
-                        <button type="button" class="btn btn-danger-outline btn-sm delete-tourney-btn" data-id="${tourney.id}" title="Flytta till papperskorgen">
-                            🗑️
-                        </button>
-                    </div>
-                `;
-
-                card.querySelector('.select-tourney-btn').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    appState.activeTournamentId = tourney.id;
-                    saveState();
-                    initCloudSync();
-                    renderApp();
-                    switchTab('tabLobby');
-                });
-
-                card.querySelector('.delete-tourney-btn').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    if (confirm(`Vill du flytta turneringen "${tourney.name}" till papperskorgen? Den kan tas tillbaka när som helst.`)) {
-                        deleteTournament(tourney.id, false);
-                    }
-                });
-
-                card.addEventListener('click', () => {
-                    appState.activeTournamentId = tourney.id;
-                    saveState();
-                    initCloudSync();
-                    renderApp();
-                    switchTab('tabLobby');
-                });
-
-                historyContainer.appendChild(card);
-            });
-        }
-
-        // 2. Rendera raderade turneringar (Papperskorg)
-        trashContainer.innerHTML = '';
-        if (trashCount === 0) {
-            trashContainer.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:24px;">Papperskorgen är tom.</p>';
-        } else {
-            appState.deletedTournaments.forEach(tourney => {
-                const card = document.createElement('div');
-                card.className = 'trash-card';
-                card.innerHTML = `
-                    <div>
-                        <div style="font-size:16px;font-weight:800;color:var(--text-primary);">${escapeHtml(tourney.name)}</div>
-                        <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px;display:flex;gap:10px;">
-                            <span>Raderad: ${new Date(tourney.deletedAt || tourney.createdAt).toLocaleDateString('sv-SE')}</span>
-                            <span>🎾 ${tourney.format === 'option1' ? 'Lag-serie' : 'Bana-rotation'}</span>
-                            <span>👥 ${tourney.players ? tourney.players.length : 0}/8 spelare</span>
-                        </div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:10px;">
-                        <button type="button" class="btn btn-restore btn-sm restore-tourney-btn" data-id="${tourney.id}" title="Ta tillbaka turneringen">
-                            ↺ Återställ turnering
-                        </button>
-                        <button type="button" class="btn btn-danger-outline btn-sm perm-delete-btn" data-id="${tourney.id}" title="Radera permanent">
-                            🗑️ Ta bort permanent
-                        </button>
-                    </div>
-                `;
-
-                card.querySelector('.restore-tourney-btn').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    restoreTournament(tourney.id);
-                });
-
-                card.querySelector('.perm-delete-btn').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    deleteTournament(tourney.id, true);
-                });
-
-                trashContainer.appendChild(card);
-            });
-        }
-    }
-
-    /**
-     * Rendera Användarstatus i Header
-     */
-    function renderUserStatus() {
-        const btnAuth = document.getElementById('btnUserAuth');
-        const avatar = document.getElementById('headerUserAvatar');
-        const nameEl = document.getElementById('headerUserName');
-        const guestBanner = document.getElementById('guestModeBanner');
-        const activeTourney = getActiveTournament();
-        const isOrg = activeTourney && isUserOrganizerOf(activeTourney);
+    function renderMenuView(tourney) {
+        const userIcon = document.getElementById('menuUserIcon');
+        const userName = document.getElementById('menuUserName');
+        const userRole = document.getElementById('menuUserRole');
+        const archiveCount = document.getElementById('menuArchiveCountText');
 
         if (appState.currentUser) {
-            const role = appState.currentUser.role || 'player';
-            if (avatar) avatar.textContent = role === 'admin' ? '👑' : '🎾';
-            if (nameEl) {
-                if (role === 'admin') {
-                    nameEl.textContent = `Arrangör (${appState.currentUser.name || 'Admin'})`;
-                } else {
-                    nameEl.textContent = `Spelare: ${appState.currentUser.name || 'Deltagare'}`;
-                }
+            if (userIcon) userIcon.textContent = appState.currentUser.role === 'admin' ? '👑' : '🎾';
+            if (userName) userName.textContent = appState.currentUser.name;
+            if (userRole) {
+                userRole.textContent = appState.currentUser.role === 'admin' 
+                    ? 'Arrangör (Admin)' 
+                    : `Spelare ${appState.currentUser.pin ? '· PIN: ' + appState.currentUser.pin : ''}`;
             }
-            if (btnAuth) btnAuth.classList.remove('not-logged-in');
-            if (guestBanner) guestBanner.style.display = 'none';
-        } else if (isOrg) {
-            if (avatar) avatar.textContent = '👑';
-            if (nameEl) nameEl.textContent = `Arrangör (${activeTourney.organizer ? activeTourney.organizer.name : 'Du'})`;
-            if (btnAuth) btnAuth.classList.remove('not-logged-in');
-            if (guestBanner) guestBanner.style.display = 'none';
         } else {
-            // Inte inloggad -> Gästläge (Visningsläge)
-            if (avatar) avatar.textContent = '👤';
-            if (nameEl) nameEl.textContent = 'Logga in';
-            if (btnAuth) btnAuth.classList.add('not-logged-in');
-            if (guestBanner) guestBanner.style.display = activeTourney ? 'flex' : 'none';
+            if (userIcon) userIcon.textContent = '👤';
+            if (userName) userName.textContent = 'Gästläge';
+            if (userRole) userRole.textContent = 'Visningsläge – Logga in för att rapportera';
         }
 
-        // Uppdatera även inloggningsmodalens status-box
-        const loggedInBox = document.getElementById('authCurrentUserInfo');
-        const loggedInText = document.getElementById('authLoggedInStatusText');
-        const loggedInSub = document.getElementById('authLoggedInSubText');
-
-        if (loggedInBox) {
-            if (appState.currentUser) {
-                loggedInBox.style.display = 'block';
-                const roleLabel = (appState.currentUser.role === 'admin') ? '👑 Arrangör (Admin)' : '🎾 Spelare';
-                if (loggedInText) loggedInText.textContent = `Inloggad som: ${appState.currentUser.name}`;
-                if (loggedInSub) {
-                    if (appState.currentUser.role === 'admin') {
-                        loggedInSub.textContent = `Roll: ${roleLabel}`;
-                    } else {
-                        loggedInSub.textContent = `Roll: ${roleLabel}${appState.currentUser.pin ? ' · Personlig kod: ' + appState.currentUser.pin : ''}`;
-                    }
-                }
-            } else {
-                loggedInBox.style.display = 'none';
-            }
+        if (archiveCount) {
+            const count = appState.tournaments.length + appState.deletedTournaments.length;
+            archiveCount.textContent = `${count} sparade turneringar`;
         }
     }
 
     // =========================================================================
-    // 11. MODALER & INMATNING
+    // 9. MODALER & NOTIFIERINGAR
     // =========================================================================
-
-    function openScoreModal(matchId) {
-        const tourney = getActiveTournament();
-        if (!tourney || !tourney.rounds) return;
-
-        // Kräver inloggning för att kunna ändra matchresultat!
-        if (!appState.currentUser) {
-            const guestPrompt = document.getElementById('authNoticeGuestPrompt');
-            if (guestPrompt) guestPrompt.style.display = 'block';
-            openModal('modalAuth');
-            return;
-        }
-
-        let match = null;
-        for (const round of tourney.rounds) {
-            match = (round.matches || []).find(m => m.id === matchId);
-            if (match) break;
-        }
-
-        if (!match) return;
-        currentEditingMatch = match;
-
-        document.getElementById('modalMatchTitle').textContent = 
-            `Omgång ${match.roundIndex + 1} · Bana ${match.courtIndex}`;
-        
-        document.getElementById('modalTeam1Name').textContent = match.team1.players.join(' & ');
-        document.getElementById('modalTeam2Name').textContent = match.team2.players.join(' & ');
-
-        const pointSys = tourney.pointSystem || 'games';
-        const defaultScore1 = pointSys === 'games' ? 6 : (pointSys === 'points32' ? 16 : 12);
-        const defaultScore2 = pointSys === 'games' ? 0 : (pointSys === 'points32' ? 16 : 12);
-
-        const score1Input = document.getElementById('inputScore1');
-        const score2Input = document.getElementById('inputScore2');
-
-        score1Input.value = match.score1 !== null ? match.score1 : defaultScore1;
-        score2Input.value = match.score2 !== null ? match.score2 : defaultScore2;
-
-        renderQuickScores(pointSys);
-
-        openModal('modalScore');
-    }
-
-    function renderQuickScores(pointSys) {
-        const titleEl = document.getElementById('modalQuickScoresTitle');
-        const container = document.getElementById('modalQuickScoresContainer');
-        if (!container) return;
-
-        container.innerHTML = '';
-
-        let buttons = [];
-        if (pointSys === 'games') {
-            if (titleEl) titleEl.textContent = 'Snabbval (Game-räkning)';
-            buttons = [
-                { s1: 6, s2: 0, label: '6 - 0' },
-                { s1: 6, s2: 1, label: '6 - 1' },
-                { s1: 6, s2: 2, label: '6 - 2' },
-                { s1: 6, s2: 3, label: '6 - 3' },
-                { s1: 6, s2: 4, label: '6 - 4' },
-                { s1: 7, s2: 5, label: '7 - 5' },
-                { s1: 7, s2: 6, label: '7 - 6' },
-                { s1: 4, s2: 4, label: '4 - 4' }
-            ];
-        } else if (pointSys === 'points32') {
-            if (titleEl) titleEl.textContent = 'Snabbval (32 poäng)';
-            buttons = [
-                { s1: 16, s2: 16, label: '16 - 16' },
-                { s1: 18, s2: 14, label: '18 - 14' },
-                { s1: 20, s2: 12, label: '20 - 12' },
-                { s1: 22, s2: 10, label: '22 - 10' },
-                { s1: 24, s2: 8, label: '24 - 8' },
-                { s1: 28, s2: 4, label: '28 - 4' }
-            ];
-        } else {
-            if (titleEl) titleEl.textContent = 'Snabbval (24 poäng)';
-            buttons = [
-                { s1: 12, s2: 12, label: '12 - 12' },
-                { s1: 14, s2: 10, label: '14 - 10' },
-                { s1: 16, s2: 8, label: '16 - 8' },
-                { s1: 18, s2: 6, label: '18 - 6' },
-                { s1: 20, s2: 4, label: '20 - 4' }
-            ];
-        }
-
-        buttons.forEach(b => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'btn-quick-score';
-            btn.textContent = b.label;
-            btn.setAttribute('data-s1', b.s1);
-            btn.setAttribute('data-s2', b.s2);
-            btn.addEventListener('click', () => {
-                document.getElementById('inputScore1').value = b.s1;
-                document.getElementById('inputScore2').value = b.s2;
-            });
-            container.appendChild(btn);
-        });
-    }
 
     function openModal(modalId) {
         const el = document.getElementById(modalId);
-        if (el) el.classList.add('open');
+        if (el) el.style.display = 'flex';
+        playClick();
     }
 
     function closeModal(modalId) {
         const el = document.getElementById(modalId);
-        if (el) el.classList.remove('open');
+        if (el) el.style.display = 'none';
     }
 
-    function switchTab(tabId) {
-        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+    function showPinConfirmModal(name, pin) {
+        document.getElementById('pinConfirmName').textContent = name;
+        document.getElementById('pinConfirmCode').textContent = pin;
+        openModal('modalPinConfirm');
+    }
 
-        const targetBtn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
-        const targetSec = document.getElementById(tabId);
+    function showToast(message) {
+        const container = document.getElementById('toastContainer');
+        if (!container) return;
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.innerHTML = `<span class="toast-message">${escapeHtml(message)}</span>`;
+        container.appendChild(toast);
+        setTimeout(() => toast.remove(), 3200);
+    }
 
-        if (targetBtn) targetBtn.classList.add('active');
-        if (targetSec) targetSec.classList.add('active');
+    function showUndoToast(tourney) {
+        const container = document.getElementById('toastContainer');
+        if (!container) return;
+        if (undoToastTimer) clearTimeout(undoToastTimer);
 
-        const tourney = getActiveTournament();
-        const bannerEl = document.getElementById('tournamentBanner');
-        const emptyStateEl = document.getElementById('emptyStateContainer');
-        const contentEl = document.getElementById('contentContainer');
-        const navTabsEl = document.getElementById('mainNavTabs');
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.id = 'activeUndoToast';
+        toast.innerHTML = `
+            <span class="toast-message">🗑️ "${escapeHtml(tourney.name)}" raderades.</span>
+            <button type="button" class="toast-btn">Ångra ↺</button>
+        `;
 
-        if (!tourney) {
-            if (tabId === 'tabHistory') {
-                if (bannerEl) bannerEl.style.display = 'none';
-                if (emptyStateEl) emptyStateEl.style.display = 'none';
-                if (contentEl) contentEl.style.display = 'block';
-                if (navTabsEl) navTabsEl.style.display = '';
+        toast.querySelector('.toast-btn').addEventListener('click', () => {
+            restoreTournament(tourney.id);
+            toast.remove();
+        });
+
+        container.appendChild(toast);
+        undoToastTimer = setTimeout(() => {
+            toast.remove();
+        }, 8000);
+    }
+
+    function renderArchiveModal() {
+        const activeList = document.getElementById('archiveActiveList');
+        const trashList = document.getElementById('archiveTrashList');
+
+        if (activeList) {
+            activeList.innerHTML = '';
+            if (appState.tournaments.length === 0) {
+                activeList.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">Inga sparade turneringar</span>';
             } else {
-                if (bannerEl) bannerEl.style.display = 'none';
-                if (emptyStateEl) emptyStateEl.style.display = 'block';
-                if (contentEl) contentEl.style.display = 'none';
-                if (navTabsEl) navTabsEl.style.display = 'none';
+                appState.tournaments.forEach(t => {
+                    const item = document.createElement('div');
+                    item.className = 'archive-item';
+                    item.innerHTML = `
+                        <div class="archive-item-info">
+                            <div class="archive-item-title">${escapeHtml(t.name)}</div>
+                            <div class="archive-item-sub">${new Date(t.createdAt).toLocaleDateString('sv-SE')} · ${t.players.length}/8 spelare</div>
+                        </div>
+                        <div class="archive-item-actions">
+                            <button type="button" class="btn btn-secondary btn-sm select-btn">Öppna</button>
+                        </div>
+                    `;
+                    item.querySelector('.select-btn').addEventListener('click', () => {
+                        appState.activeTournamentId = t.id;
+                        saveState();
+                        initCloudSync();
+                        renderApp();
+                        closeModal('modalArchive');
+                        switchView('viewPlayers');
+                    });
+                    activeList.appendChild(item);
+                });
             }
         }
 
-        // Scrolla mjukt upp på mobil så man inte hamnar mitt i en lång tabell eller spelschema
+        if (trashList) {
+            trashList.innerHTML = '';
+            if (appState.deletedTournaments.length === 0) {
+                trashList.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">Papperskorgen är tom</span>';
+            } else {
+                appState.deletedTournaments.forEach(t => {
+                    const item = document.createElement('div');
+                    item.className = 'archive-item';
+                    item.innerHTML = `
+                        <div class="archive-item-info">
+                            <div class="archive-item-title">${escapeHtml(t.name)}</div>
+                            <div class="archive-item-sub">Raderad · ${t.players.length} spelare</div>
+                        </div>
+                        <div class="archive-item-actions">
+                            <button type="button" class="btn btn-secondary btn-sm restore-btn">Återställ</button>
+                            <button type="button" class="btn btn-danger-sm perm-del-btn">✕</button>
+                        </div>
+                    `;
+                    item.querySelector('.restore-btn').addEventListener('click', () => {
+                        restoreTournament(t.id);
+                        renderArchiveModal();
+                    });
+                    item.querySelector('.perm-del-btn').addEventListener('click', () => {
+                        if (confirm(`Radera "${t.name}" permanent?`)) {
+                            deleteTournament(t.id, true);
+                        }
+                    });
+                    trashList.appendChild(item);
+                });
+            }
+        }
+    }
+
+    // =========================================================================
+    // 10. NAVIGERING MELLAN FLIKAR
+    // =========================================================================
+
+    function switchView(viewId) {
+        document.querySelectorAll('.nav-tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === viewId);
+        });
+
+        document.querySelectorAll('.app-view').forEach(view => {
+            if (view.id === viewId) {
+                view.style.display = 'block';
+                view.classList.add('active');
+            } else {
+                view.style.display = 'none';
+                view.classList.remove('active');
+            }
+        });
+
+        playClick();
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    function escapeHtml(string) {
-        const entityMap = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#39;'
-        };
-        return String(string || '').replace(/[&<>"']/g, s => entityMap[s]);
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     // =========================================================================
-    // 12. EVENT LISTENERS
+    // 11. HÄNDELSELYSSNARE (EVENT LISTENERS)
     // =========================================================================
 
     function setupEventListeners() {
-        // Tab-navigering
-        document.querySelectorAll('.tab-btn').forEach(btn => {
+        // Bottenmeny
+        document.querySelectorAll('.nav-tab-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                const targetTab = btn.getAttribute('data-tab');
-                switchTab(targetTab);
+                switchView(btn.dataset.tab);
             });
         });
 
-        // Sub-tabs i Turneringsarkiv (Aktiva vs Papperskorg)
-        const btnShowActive = document.getElementById('btnShowActiveTournaments');
-        const btnShowTrash = document.getElementById('btnShowTrashTournaments');
-        const secActive = document.getElementById('sectionActiveTournaments');
-        const secTrash = document.getElementById('sectionTrashTournaments');
-
-        if (btnShowActive && btnShowTrash && secActive && secTrash) {
-            btnShowActive.addEventListener('click', () => {
-                btnShowActive.classList.add('active');
-                btnShowTrash.classList.remove('active');
-                secActive.style.display = 'block';
-                secTrash.style.display = 'none';
+        // Omgångsväljare
+        document.querySelectorAll('.round-pill').forEach(pill => {
+            pill.addEventListener('click', () => {
+                appState.currentRoundIndex = parseInt(pill.dataset.round, 10);
+                const tourney = getActiveTournament();
+                if (tourney) renderMatchesView(tourney);
+                playClick();
             });
+        });
 
-            btnShowTrash.addEventListener('click', () => {
-                btnShowTrash.classList.add('active');
-                btnShowActive.classList.remove('active');
-                secActive.style.display = 'none';
-                secTrash.style.display = 'block';
+        // Startskärm knappar
+        document.getElementById('btnStartCreate').addEventListener('click', () => openModal('modalNewTourney'));
+        document.getElementById('btnStartArchive').addEventListener('click', () => {
+            renderArchiveModal();
+            openModal('modalArchive');
+        });
+
+        // Meny knappar
+        document.getElementById('btnMenuNewTourney').addEventListener('click', () => openModal('modalNewTourney'));
+        document.getElementById('btnMenuLogin').addEventListener('click', () => openModal('modalAuth'));
+        document.getElementById('btnUserHeader').addEventListener('click', () => openModal('modalAuth'));
+        document.getElementById('btnOpenArchiveModal').addEventListener('click', () => {
+            renderArchiveModal();
+            openModal('modalArchive');
+        });
+
+        document.getElementById('btnMenuDeleteTourney').addEventListener('click', () => {
+            const active = getActiveTournament();
+            if (active && confirm(`Vill du flytta turneringen "${active.name}" till papperskorgen?`)) {
+                deleteTournament(active.id);
+            }
+        });
+
+        // Länkdelning
+        const copyHandler = () => {
+            const active = getActiveTournament();
+            if (!active) return;
+            const url = getShareableUrl(active);
+            navigator.clipboard.writeText(url).then(() => {
+                showToast('📋 Inbjudningslänk kopierad till urklipp!');
+                playSuccess();
+            }).catch(() => {
+                prompt('Kopiera länken här:', url);
             });
-        }
+        };
 
-        // Töm papperskorgen
-        const btnEmptyTrash = document.getElementById('btnEmptyTrash');
-        if (btnEmptyTrash) {
-            btnEmptyTrash.addEventListener('click', emptyTrash);
-        }
+        const whatsappHandler = () => {
+            const active = getActiveTournament();
+            if (!active) return;
+            const url = getShareableUrl(active);
+            const text = encodeURIComponent(`Hej! Här är länken till vår padelturnering ${active.name}: ${url}`);
+            window.open(`https://wa.me/?text=${text}`, '_blank');
+        };
 
-        // Radera aktiv turnering från bannern
-        document.getElementById('btnDeleteCurrentTourney').addEventListener('click', () => {
+        document.getElementById('btnCopyInviteLink').addEventListener('click', copyHandler);
+        document.getElementById('btnMenuCopyLink').addEventListener('click', copyHandler);
+        document.getElementById('btnWhatsappInvite').addEventListener('click', whatsappHandler);
+        document.getElementById('btnMenuWhatsapp').addEventListener('click', whatsappHandler);
+
+        // Lottningsknapp
+        document.getElementById('btnDrawSchedule').addEventListener('click', () => {
             const tourney = getActiveTournament();
-            if (!tourney) return;
-            if (!isUserOrganizerOf(tourney)) {
-                alert(`Endast turneringens arrangör (${tourney.organizer ? tourney.organizer.name : 'Admin'}) kan radera denna turnering.`);
-                openAuthModalWithRegisteredList();
-                return;
-            }
-            if (confirm(`Vill du flytta turneringen "${tourney.name}" till papperskorgen? Den kan tas tillbaka när som helst under fliken Turneringsarkiv.`)) {
-                deleteTournament(tourney.id, false);
-            }
+            if (tourney) drawSchedule(tourney);
         });
 
-        // Öppna Skapa Ny Turnering – Fyller automatiskt i tidigare arrangörsuppgifter
-        function openNewTournamentModal() {
-            let lastOrg = null;
-            try {
-                const lastOrgRaw = localStorage.getItem('pinta_padel_last_organizer');
-                if (lastOrgRaw) lastOrg = JSON.parse(lastOrgRaw);
-            } catch (e) {}
-
-            const defaultName = (lastOrg && lastOrg.name) || (appState.currentUser && appState.currentUser.name) || '';
-            const inputName = document.getElementById('inputOrganizerName');
-            const checkPlays = document.getElementById('checkOrganizerPlays');
-
-            if (inputName && defaultName) inputName.value = defaultName;
-            if (checkPlays) checkPlays.checked = true;
-
-            document.getElementById('inputTourneyName').value = `Pinta Padel Tour – ${new Date().toLocaleDateString('sv-SE')}`;
-            openModal('modalNewTournament');
-        }
-
-        document.getElementById('btnNewTournament').addEventListener('click', openNewTournamentModal);
-        document.getElementById('btnEmptyCreate').addEventListener('click', openNewTournamentModal);
-
-        const btnEmptyShowArchive = document.getElementById('btnEmptyShowArchive');
-        if (btnEmptyShowArchive) {
-            btnEmptyShowArchive.addEventListener('click', () => {
-                switchTab('tabHistory');
-            });
-        }
-
-        const btnBackToStart = document.getElementById('btnBackToStartFromArchive');
-        if (btnBackToStart) {
-            btnBackToStart.addEventListener('click', () => {
-                const active = getActiveTournament();
-                if (active) {
-                    switchTab('tabLobby');
-                } else {
-                    appState.activeTournamentId = null;
-                    renderApp();
-                    switchTab('tabLobby');
-                }
-            });
-        }
-
-        document.getElementById('btnGoToMatchesFromBanner').addEventListener('click', () => {
-            document.getElementById('drawCelebrationBanner').style.display = 'none';
-            switchTab('tabMatches');
+        document.getElementById('btnJumpToMatches').addEventListener('click', () => {
+            switchView('viewMatches');
         });
 
-        document.getElementById('btnGoToLobbyFromTable').addEventListener('click', () => switchTab('tabLobby'));
-        document.getElementById('btnGoToLobbyFromMatches').addEventListener('click', () => switchTab('tabLobby'));
-
-        const btnGoToMatchesFromLobby = document.getElementById('btnGoToMatchesFromLobby');
-        if (btnGoToMatchesFromLobby) {
-            btnGoToMatchesFromLobby.addEventListener('click', () => switchTab('tabMatches'));
+        const btnGoMatches = document.getElementById('btnGoToPlayersFromMatches');
+        if (btnGoMatches) {
+            btnGoMatches.addEventListener('click', () => switchView('viewPlayers'));
         }
 
-        // LOTTNINGSKNAPP (I VÄNTRUMMET)
-        const btnDrawSchedule = document.getElementById('btnDrawSchedule');
-        if (btnDrawSchedule) {
-            btnDrawSchedule.addEventListener('click', () => {
-                const tourney = getActiveTournament();
-                if (!tourney) return;
-                const isDrawn = tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0);
-                if (isDrawn) {
-                    switchTab('tabMatches');
-                    return;
-                }
-                if (!isUserOrganizerOf(tourney)) {
-                    alert(`Lottningen måste startas av turneringens arrangör (${tourney.organizer ? tourney.organizer.name : 'Admin'}). Om du är arrangör och styr från en annan enhet, ange din arrangörskod.`);
-                    const guestPrompt = document.getElementById('authNoticeGuestPrompt');
-                    if (guestPrompt) guestPrompt.style.display = 'block';
-                    openAuthModalWithRegisteredList();
-                    return;
-                }
-                executeDraw(tourney);
-            });
-        }
-
-        // LOTTNINGSKNAPP (I BANNERN)
-        const btnBannerDraw = document.getElementById('btnBannerDraw');
-        if (btnBannerDraw) {
-            btnBannerDraw.addEventListener('click', () => {
-                const tourney = getActiveTournament();
-                if (!tourney) return;
-                const isDrawn = tourney.isDrawn || (tourney.rounds && tourney.rounds.length > 0);
-                if (isDrawn) {
-                    switchTab('tabMatches');
-                    return;
-                }
-                if (!isUserOrganizerOf(tourney)) {
-                    alert(`Lottningen måste startas av turneringens arrangör (${tourney.organizer ? tourney.organizer.name : 'Admin'}). Om du är arrangör och styr från en annan enhet, ange din arrangörskod.`);
-                    openAuthModalWithRegisteredList();
-                    return;
-                }
-                executeDraw(tourney);
-            });
-        }
-
-        // KNAPP: GÖR NY LOTTNING (Låst - kan inte göras om)
-        const btnReDraw = document.getElementById('btnReDrawSchedule');
-        if (btnReDraw) {
-            btnReDraw.addEventListener('click', () => {
-                alert('Lottningen är låst och kan inte göras om.');
-            });
-        }
-
-        // Skapa ny turnering (Med arrangörsuppgifter och valfri Plats 1 placering)
-        document.getElementById('formNewTournament').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const name = document.getElementById('inputTourneyName').value.trim();
-            const format = document.querySelector('input[name="tourneyFormat"]:checked').value;
-            const points = document.getElementById('selectPointSystem').value;
-            const orgName = document.getElementById('inputOrganizerName') ? document.getElementById('inputOrganizerName').value.trim() : '';
-            const orgPlays = document.getElementById('checkOrganizerPlays') ? document.getElementById('checkOrganizerPlays').checked : true;
-
-            const newTourney = createNewTournament(name, format, points, { name: orgName }, orgPlays);
-            closeModal('modalNewTournament');
-            renderApp();
-            switchTab('tabLobby');
-
-            setTimeout(() => {
-                openShareModal();
-            }, 300);
-        });
-
-        // REGISTRERING HELT UTAN MAIL (BARA NAMN -> SLUMPAR 4-SIFFRIG KOD & SPARAS I TELEFONEN)
-        const formQuickRegister = document.getElementById('formQuickRegisterName');
-        if (formQuickRegister) {
-            formQuickRegister.addEventListener('submit', (e) => {
-                e.preventDefault();
-                const nameInput = document.getElementById('quickRegisterNameInput');
-                const name = nameInput ? nameInput.value.trim() : '';
-                const tourney = getActiveTournament();
-                if (tourney && registerPlayer(tourney, { name: name }, true)) {
-                    if (nameInput) nameInput.value = '';
-                }
-            });
-        }
-
-        // BEKRÄFTELSEMODAL FÖR PIN-KOD (STÄNG KNAPP)
-        const btnPinConfirmDone = document.getElementById('btnPinConfirmDone');
-        if (btnPinConfirmDone) {
-            btnPinConfirmDone.addEventListener('click', () => {
-                closeModal('modalPinConfirmation');
-            });
-        }
-
-        // MANUELL REGISTRERING (FÖR ARRANGÖR ATT TILLDELA PLATS UTAN MAIL)
-        document.getElementById('formManualPlayer').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const name = document.getElementById('manualPlayerName').value.trim();
-
-            if (!name) {
-                alert('Vänligen ange spelarens namn.');
+        // Ta plats klick
+        document.getElementById('rosterList').addEventListener('click', (e) => {
+            const takeBtn = e.target.closest('.btn-take-slot');
+            if (takeBtn) {
+                const slot = takeBtn.dataset.slot;
+                document.getElementById('takeSlotIndex').value = slot;
+                openModal('modalTakeSlot');
                 return;
             }
 
-            const tourney = getActiveTournament();
-            if (tourney && registerPlayer(tourney, { name: name }, true)) {
-                closeModal('modalManualPlayer');
-            }
-        });
-
-        // TILLDELA REDAN REGISTRERAD SPELARE
-        const btnAssignExisting = document.getElementById('btnAssignExistingPlayer');
-        if (btnAssignExisting) {
-            btnAssignExisting.addEventListener('click', () => {
-                const select = document.getElementById('selectExistingPlayer');
-                const playerId = select ? select.value : null;
-                const regPlayer = (appState.registeredPlayers || []).find(p => p.id === playerId);
+            const removeBtn = e.target.closest('.btn-remove-player');
+            if (removeBtn) {
+                const idx = parseInt(removeBtn.dataset.idx, 10);
                 const tourney = getActiveTournament();
-                if (regPlayer && tourney) {
-                    if (registerPlayer(tourney, {
-                        name: regPlayer.name,
-                        pin: regPlayer.pin
-                    }, true)) {
-                        closeModal('modalManualPlayer');
-                    }
-                }
-            });
-        }
-
-        // INBJUDNINGSKANALER & ARRANGÖRSÅTKOMST
-        function openShareModal() {
-            const tourney = getActiveTournament();
-            if (!tourney) return;
-            document.getElementById('shareUrlInput').value = getInviteUrl(tourney);
-
-            // Visa arrangörskod och arrangörsruta (visas om användaren är arrangör)
-            const badgeCode = document.getElementById('badgeOrganizerCode');
-            if (badgeCode) {
-                badgeCode.textContent = `Kod: ${tourney.adminCode || 'PT-88'}`;
-            }
-
-            const orgBox = document.getElementById('modalOrganizerAccessBox');
-            if (orgBox) {
-                orgBox.style.display = isUserOrganizerOf(tourney) ? 'block' : 'none';
-            }
-
-            openModal('modalShare');
-        }
-
-        const btnCopyAdmin = document.getElementById('btnCopyAdminUrl');
-        if (btnCopyAdmin) {
-            btnCopyAdmin.addEventListener('click', () => {
-                const tourney = getActiveTournament();
-                if (!tourney) return;
-                const adminUrl = getOrganizerUrl(tourney);
-                copyTextToClipboard(adminUrl).then(() => {
-                    btnCopyAdmin.innerHTML = '<span>✓</span> Arrangörslänk kopierad!';
-                    setTimeout(() => {
-                        btnCopyAdmin.innerHTML = '<span>🔗</span> Kopiera din arrangörslänk';
-                    }, 2500);
-                });
-            });
-        }
-
-        document.getElementById('btnShareTournament').addEventListener('click', openShareModal);
-
-        document.getElementById('btnShareMessenger').addEventListener('click', () => {
-            const tourney = getActiveTournament();
-            if (tourney) shareViaMessenger(tourney);
-        });
-        document.getElementById('modalBtnMessenger').addEventListener('click', () => {
-            const tourney = getActiveTournament();
-            if (tourney) shareViaMessenger(tourney);
-        });
-
-        document.getElementById('btnShareWhatsapp').addEventListener('click', () => {
-            const tourney = getActiveTournament();
-            if (tourney) shareViaWhatsApp(tourney);
-        });
-        document.getElementById('modalBtnWhatsapp').addEventListener('click', () => {
-            const tourney = getActiveTournament();
-            if (tourney) shareViaWhatsApp(tourney);
-        });
-
-        function handleCopyInviteLink() {
-            const tourney = getActiveTournament();
-            if (!tourney) return;
-            const url = getInviteUrl(tourney);
-            copyTextToClipboard(url).then(() => {
-                const btn1 = document.getElementById('btnCopyInviteLink');
-                const btn2 = document.getElementById('btnCopyShareUrl');
-                if (btn1) btn1.textContent = 'Länk kopierad! ✓';
-                if (btn2) btn2.textContent = 'Länk kopierad! ✓';
-                setTimeout(() => {
-                    if (btn1) btn1.innerHTML = '<span>📋</span> Kopiera länk';
-                    if (btn2) btn2.textContent = 'Kopiera länk';
-                }, 2000);
-            });
-        }
-
-        function handleCopyInviteText() {
-            const tourney = getActiveTournament();
-            if (!tourney) return;
-            const text = getInviteMessageText(tourney);
-            copyTextToClipboard(text).then(() => {
-                const btn1 = document.getElementById('btnCopyInviteText');
-                const btn2 = document.getElementById('btnModalCopyInviteText');
-                if (btn1) btn1.textContent = 'Inbjudan kopierad! ✓';
-                if (btn2) btn2.textContent = 'Inbjudan kopierad! ✓';
-                setTimeout(() => {
-                    if (btn1) btn1.innerHTML = '<span>✉️</span> Kopiera inbjudningstext';
-                    if (btn2) btn2.innerHTML = '<span>✉️</span> Kopiera färdig inbjudningstext med turneringsnamn & länk';
-                }, 2000);
-            });
-        }
-
-        const btnCopyInviteLink = document.getElementById('btnCopyInviteLink');
-        if (btnCopyInviteLink) btnCopyInviteLink.addEventListener('click', handleCopyInviteLink);
-
-        const btnCopyShareUrl = document.getElementById('btnCopyShareUrl');
-        if (btnCopyShareUrl) btnCopyShareUrl.addEventListener('click', handleCopyInviteLink);
-
-        const btnCopyInviteText = document.getElementById('btnCopyInviteText');
-        if (btnCopyInviteText) btnCopyInviteText.addEventListener('click', handleCopyInviteText);
-
-        const btnModalCopyInviteText = document.getElementById('btnModalCopyInviteText');
-        if (btnModalCopyInviteText) btnModalCopyInviteText.addEventListener('click', handleCopyInviteText);
-
-        // Matchresultat & Steppers
-        document.getElementById('btnSaveScore').addEventListener('click', () => {
-            if (!currentEditingMatch) return;
-            const s1 = parseInt(document.getElementById('inputScore1').value, 10);
-            const s2 = parseInt(document.getElementById('inputScore2').value, 10);
-
-            if (!isNaN(s1) && !isNaN(s2)) {
-                saveMatchScore(currentEditingMatch.id, s1, s2);
-                closeModal('modalScore');
+                if (tourney) removePlayer(tourney, idx);
+                return;
             }
         });
 
-        document.getElementById('btnTeam1Plus').addEventListener('click', () => {
-            const el = document.getElementById('inputScore1');
-            el.value = parseInt(el.value || 0, 10) + 1;
-        });
-        document.getElementById('btnTeam1Minus').addEventListener('click', () => {
-            const el = document.getElementById('inputScore1');
-            el.value = Math.max(0, parseInt(el.value || 0, 10) - 1);
-        });
-        document.getElementById('btnTeam2Plus').addEventListener('click', () => {
-            const el = document.getElementById('inputScore2');
-            el.value = parseInt(el.value || 0, 10) + 1;
-        });
-        document.getElementById('btnTeam2Minus').addEventListener('click', () => {
-            const el = document.getElementById('inputScore2');
-            el.value = Math.max(0, parseInt(el.value || 0, 10) - 1);
-        });
-
-        // Stäng-knappar för alla modaler
-        document.querySelectorAll('.modal-close, .btn-modal-cancel').forEach(btn => {
+        // Spara poäng knappar
+        document.querySelectorAll('.btn-save-score').forEach(btn => {
             btn.addEventListener('click', () => {
-                document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.remove('open'));
+                const court = parseInt(btn.dataset.court, 10);
+                saveMatchScore(court);
             });
         });
 
-        // INLOGGNING (ARRANGÖR ELLER SPELARE)
-        const cardRoleAdmin = document.getElementById('cardRoleAdmin');
-        const cardRolePlayer = document.getElementById('cardRolePlayer');
-        const authRoleSelected = document.getElementById('authRoleSelected');
-        const authPinGroup = document.getElementById('authPinGroup');
-        const authPlayerQuickSelectGroup = document.getElementById('authPlayerQuickSelectGroup');
-        const selectAuthRegisteredPlayer = document.getElementById('selectAuthRegisteredPlayer');
-        const btnSubmitAuth = document.getElementById('btnSubmitAuth');
-        const btnLogoutUser = document.getElementById('btnLogoutUser');
-        const btnContinueAsGuest = document.getElementById('btnContinueAsGuest');
-        const btnGuestLogin = document.getElementById('btnGuestBannerLogin');
+        // Poängstegare (+ / -)
+        document.querySelectorAll('.score-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const court = btn.dataset.court;
+                const team = btn.dataset.team;
+                const isPlus = btn.classList.contains('score-plus');
+                const input = document.getElementById(`court${parseInt(court, 10) + 1}Score${team}`);
+                if (input) {
+                    let val = parseInt(input.value, 10) || 0;
+                    val = isPlus ? val + 1 : Math.max(0, val - 1);
+                    input.value = val;
+                    playClick();
+                }
+            });
+        });
 
-        const authPlayerPinGroup = document.getElementById('authPlayerPinGroup');
+        // Modal stängningar
+        document.querySelectorAll('.btn-close-modal').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const modal = e.target.closest('.modal-overlay');
+                if (modal) modal.style.display = 'none';
+            });
+        });
 
-        function setAuthRole(role) {
-            authRoleSelected.value = role;
+        document.getElementById('btnClosePinConfirm').addEventListener('click', () => {
+            closeModal('modalPinConfirm');
+        });
+
+        document.getElementById('btnEmptyTrash').addEventListener('click', () => {
+            if (confirm('Vill du tömma papperskorgen permanent? Detta kan inte ångras.')) {
+                appState.deletedTournaments = [];
+                saveState();
+                renderArchiveModal();
+                playDelete();
+            }
+        });
+
+        // Formulär: Skapa ny turnering
+        document.getElementById('formNewTourney').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = document.getElementById('newTourneyName').value;
+            const org = document.getElementById('newTourneyOrg').value;
+            const plays = document.getElementById('newTourneyOrgPlays').checked;
+            const format = document.getElementById('newTourneyFormat').value;
+            const points = document.getElementById('newTourneyPoints').value;
+
+            createNewTournament(name, org, plays, format, points);
+            closeModal('modalNewTourney');
+            e.target.reset();
+        });
+
+        // Formulär: Ta plats
+        document.getElementById('formTakeSlot').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = document.getElementById('takeSlotPlayerName').value;
+            const slot = document.getElementById('takeSlotIndex').value;
             const tourney = getActiveTournament();
-
-            if (role === 'admin') {
-                cardRoleAdmin.classList.add('selected');
-                cardRolePlayer.classList.remove('selected');
-                if (authPlayerPinGroup) authPlayerPinGroup.style.display = 'none';
-                authPinGroup.style.display = 'block';
-                if (authPlayerQuickSelectGroup) authPlayerQuickSelectGroup.style.display = 'none';
-                btnSubmitAuth.textContent = 'Logga in som Arrangör 👔';
-
-                const orgName = (tourney && tourney.organizer && tourney.organizer.name) 
-                    ? tourney.organizer.name 
-                    : (appState.currentUser && appState.currentUser.name ? appState.currentUser.name : 'Ulrik');
-                const nameInput = document.getElementById('authUserName');
-                if (nameInput) nameInput.value = orgName;
-            } else {
-                cardRolePlayer.classList.add('selected');
-                cardRoleAdmin.classList.remove('selected');
-                if (authPlayerPinGroup) authPlayerPinGroup.style.display = 'block';
-                authPinGroup.style.display = 'none';
-                if (authPlayerQuickSelectGroup) authPlayerQuickSelectGroup.style.display = 'block';
-                btnSubmitAuth.textContent = 'Logga in som Spelare 🎾';
-
-                // Om användaren vill byta till spelare:
-                const currentName = appState.currentUser ? appState.currentUser.name : '';
-                const nameInput = document.getElementById('authUserName');
-                const pinInput = document.getElementById('authPlayerPin');
-
-                if (tourney && tourney.players && currentName) {
-                    const selfPlayer = tourney.players.find(p => (typeof p === 'string' ? p : p.name).toLowerCase() === currentName.toLowerCase());
-                    if (selfPlayer) {
-                        if (nameInput) nameInput.value = typeof selfPlayer === 'string' ? selfPlayer : selfPlayer.name;
-                        if (pinInput && typeof selfPlayer === 'object' && selfPlayer.pin) {
-                            pinInput.value = selfPlayer.pin;
-                        }
-                    }
-                }
+            if (tourney && name) {
+                registerPlayer(tourney, name, slot);
+                closeModal('modalTakeSlot');
+                e.target.reset();
             }
-        }
-
-        if (cardRoleAdmin && cardRolePlayer) {
-            cardRoleAdmin.addEventListener('click', () => setAuthRole('admin'));
-            cardRolePlayer.addEventListener('click', () => setAuthRole('player'));
-        }
-
-        function openAuthModalWithRegisteredList() {
-            const currentRole = (appState.currentUser && appState.currentUser.role === 'admin') ? 'admin' : 'player';
-            setAuthRole(currentRole);
-
-            document.getElementById('authUserName').value = appState.currentUser ? appState.currentUser.name : '';
-            const pinInput = document.getElementById('authPlayerPin');
-            if (pinInput) pinInput.value = (appState.currentUser && appState.currentUser.pin) ? appState.currentUser.pin : '';
-
-            // Fyll i registrerade spelare i snabbvalsmenyn för spelar-inloggning
-            if (selectAuthRegisteredPlayer) {
-                const tourney = getActiveTournament();
-                const playersToList = (tourney && tourney.players && tourney.players.length > 0)
-                    ? tourney.players
-                    : (appState.registeredPlayers || []);
-
-                if (playersToList.length > 0) {
-                    selectAuthRegisteredPlayer.innerHTML = '<option value="">-- Välj ditt namn eller fyll i nedan --</option>' +
-                        playersToList.map(p => {
-                            const name = typeof p === 'string' ? p : p.name;
-                            return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
-                        }).join('');
-                } else {
-                    selectAuthRegisteredPlayer.innerHTML = '<option value="">-- Inga registrerade spelare ännu --</option>';
-                }
-            }
-
-            // Uppdatera info om man redan är inloggad
-            renderUserStatus();
-            openModal('modalAuth');
-        }
-
-        if (selectAuthRegisteredPlayer) {
-            selectAuthRegisteredPlayer.addEventListener('change', () => {
-                const playerName = selectAuthRegisteredPlayer.value;
-                if (playerName) {
-                    document.getElementById('authUserName').value = playerName;
-                    const pinInput = document.getElementById('authPlayerPin');
-                    if (pinInput) {
-                        pinInput.value = '';
-                        pinInput.focus();
-                    }
-                }
-            });
-        }
-
-        document.getElementById('btnUserAuth').addEventListener('click', () => {
-            const guestPrompt = document.getElementById('authNoticeGuestPrompt');
-            if (guestPrompt) guestPrompt.style.display = 'none';
-            openAuthModalWithRegisteredList();
         });
 
-        if (btnGuestLogin) {
-            btnGuestLogin.addEventListener('click', () => {
-                const guestPrompt = document.getElementById('authNoticeGuestPrompt');
-                if (guestPrompt) guestPrompt.style.display = 'none';
-                openAuthModalWithRegisteredList();
-            });
-        }
-
-        if (btnContinueAsGuest) {
-            btnContinueAsGuest.addEventListener('click', () => {
-                closeModal('modalAuth');
-            });
-        }
-
-        if (btnLogoutUser) {
-            btnLogoutUser.addEventListener('click', () => {
-                logoutUser();
-                closeModal('modalAuth');
-            });
-        }
-
+        // Formulär: Logga in
         document.getElementById('formAuth').addEventListener('submit', (e) => {
             e.preventDefault();
-            const role = authRoleSelected.value;
-            const name = document.getElementById('authUserName').value.trim() || (role === 'admin' ? 'Arrangör' : 'Spelare');
-            const adminPin = (document.getElementById('authAdminPin') ? document.getElementById('authAdminPin').value.trim() : '');
-            const playerPin = (document.getElementById('authPlayerPin') ? document.getElementById('authPlayerPin').value.trim() : '');
-
+            const code = document.getElementById('authCodeInput').value.trim();
             const tourney = getActiveTournament();
 
-            if (role === 'admin') {
-                let isAuthorized = false;
-                const isMasterCode = (adminPin.toLowerCase() === 'ulrik' || (name.toLowerCase() === 'ulrik' && adminPin.toLowerCase() === 'ulrik'));
-
-                if (isMasterCode) {
-                    isAuthorized = true;
-                } else if (tourney) {
-                    const cleanPin = adminPin.toUpperCase().replace(/\s+/g, '');
-                    const cleanCode = (tourney.adminCode || '').toUpperCase().replace(/\s+/g, '');
-
-                    if (cleanPin && (cleanPin === cleanCode || cleanPin === cleanCode.replace('PT-', ''))) {
-                        isAuthorized = true;
-                    } else if (cleanPin && tourney.adminKey && cleanPin === tourney.adminKey.toUpperCase()) {
-                        isAuthorized = true;
-                    } else {
-                        const keys = getAdminKeys();
-                        if (tourney.adminKey && keys[tourney.id] === tourney.adminKey) {
-                            isAuthorized = true;
-                        }
-                    }
-                } else {
-                    isAuthorized = true;
-                }
-
-                if (!isAuthorized) {
-                    alert(`Ogiltig arrangörskod för "${tourney ? tourney.name : 'turneringen'}". Kontrollera koden och försök igen.`);
-                    return;
-                }
-
-                // Spara nyckeln permanent på denna enhet
-                if (tourney && tourney.adminKey) {
-                    saveAdminKeyForTourney(tourney.id, tourney.adminKey);
-                }
-
-                const adminDisplayName = isMasterCode
-                    ? (name && name.toLowerCase() !== 'arrangör' && name.toLowerCase() !== 'spelare' ? name : 'Ulrik')
-                    : ((tourney && tourney.organizer && tourney.organizer.name) ? tourney.organizer.name : name);
-
-                appState.currentUser = {
-                    id: isMasterCode ? 'admin_ulrik' : ((tourney && tourney.organizer && tourney.organizer.id) ? tourney.organizer.id : ('admin_' + Date.now())),
-                    name: adminDisplayName,
-                    role: 'admin',
-                    isMasterAdmin: (isMasterCode || adminDisplayName.toLowerCase() === 'ulrik'),
-                    tourneyKey: tourney ? tourney.adminKey : null
-                };
-            } else {
-                // Spelarinloggning: Verifiera med spelarens personliga 4-siffriga PIN-kod
-                let foundPlayer = null;
-                if (tourney && tourney.players) {
-                    foundPlayer = tourney.players.find(p => {
-                        const pName = typeof p === 'string' ? p : p.name;
-                        return pName.toLowerCase() === name.toLowerCase();
-                    });
-                }
-                if (!foundPlayer && appState.registeredPlayers) {
-                    foundPlayer = appState.registeredPlayers.find(p => p.name.toLowerCase() === name.toLowerCase());
-                }
-
-                if (!foundPlayer) {
-                    alert(`Kunde inte hitta någon anmäld spelare med namnet "${name}". Kontrollera stavningen eller fyll i ditt namn i väntrummet.`);
-                    return;
-                }
-
-                const expectedPin = (typeof foundPlayer === 'object' && foundPlayer.pin) ? String(foundPlayer.pin).trim() : '';
-                const isUlrikPlayer = (name.toLowerCase() === 'ulrik' || (foundPlayer && typeof foundPlayer === 'object' && foundPlayer.name && foundPlayer.name.toLowerCase() === 'ulrik'));
-
-                // Tillåt inloggning om koden matchar spelarens PIN eller om det är Ulrik och han angav masterkoden 'ulrik'
-                const pinMatches = (expectedPin && playerPin === expectedPin) || (isUlrikPlayer && playerPin.toLowerCase() === 'ulrik') || (!expectedPin);
-
-                if (!pinMatches) {
-                    alert(`Felaktig inloggningskod för "${name}". Ange din personliga 4-siffriga kod.`);
-                    return;
-                }
-
-                appState.currentUser = {
-                    id: (typeof foundPlayer === 'object' && foundPlayer.id) ? foundPlayer.id : ('user_' + Date.now()),
-                    name: (typeof foundPlayer === 'object') ? foundPlayer.name : foundPlayer,
-                    pin: expectedPin,
-                    role: 'player'
-                };
+            if (!tourney) {
+                alert('Ingen aktiv turnering är vald.');
+                return;
             }
 
+            // Arrangörsinloggning med PT-xx eller nyckel
+            if (code.toLowerCase() === 'ulrik' || 
+                (tourney.adminCode && code.toUpperCase() === tourney.adminCode.toUpperCase()) ||
+                (tourney.adminKey && code === tourney.adminKey)) {
+                appState.currentUser = {
+                    id: (tourney.organizer && tourney.organizer.id) ? tourney.organizer.id : 'org_' + tourney.id,
+                    name: (tourney.organizer && tourney.organizer.name) ? tourney.organizer.name : 'Arrangör',
+                    role: 'admin',
+                    tourneyKey: tourney.adminKey
+                };
+                saveUser();
+                saveAdminKeyForTourney(tourney.id, tourney.adminKey);
+                closeModal('modalAuth');
+                renderApp();
+                playSuccess();
+                showToast(`👑 Inloggad som Arrangör (${appState.currentUser.name})`);
+                e.target.reset();
+                return;
+            }
+
+            // Spelarinloggning med 4-siffrig PIN
+            const foundPlayer = tourney.players.find(p => p.pin && p.pin.toString() === code);
+            if (foundPlayer) {
+                appState.currentUser = {
+                    id: foundPlayer.id,
+                    name: foundPlayer.name,
+                    pin: foundPlayer.pin,
+                    role: 'player'
+                };
+                saveUser();
+                closeModal('modalAuth');
+                renderApp();
+                playSuccess();
+                showToast(`🎾 Inloggad som Spelare (${foundPlayer.name})`);
+                e.target.reset();
+                return;
+            }
+
+            alert('Felaktig kod. Ange din 4-siffriga spelar-PIN eller arrangörskoden (PT-xx).');
+        });
+
+        document.getElementById('btnAuthLogout').addEventListener('click', () => {
+            appState.currentUser = null;
             saveUser();
             closeModal('modalAuth');
-            renderUserStatus();
             renderApp();
-            playAudioTone(523.25, 0.15);
+            playClick();
+            showToast('Du är nu i gästläge.');
         });
     }
 
     // =========================================================================
-    // 13. INITIALISERING
+    // 12. INITIERING
     // =========================================================================
 
-    document.addEventListener('DOMContentLoaded', () => {
+    function init() {
         loadState();
         setupEventListeners();
-
-        // Standard: Game-räkning vid nyskapad standardturnering (helt utan mail)
-        if (appState.tournaments.length === 0 && appState.deletedTournaments.length === 0) {
-            createNewTournament(
-                'Pinta Padel Tour – Sala',
-                'option1',
-                'games',
-                { name: 'Ulrik' },
-                true
-            );
-        } else {
-            initCloudSync();
-        }
-
         renderApp();
-    });
+        initCloudSync();
+
+        // Standardvy: Spelare om turnering finns, annars Startskärm
+        if (getActiveTournament()) {
+            switchView('viewPlayers');
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 
 })();
