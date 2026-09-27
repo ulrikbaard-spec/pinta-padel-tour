@@ -374,6 +374,26 @@ html, body {
     flex-shrink: 0;
 }
 
+.slot-name-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.slot-pin-badge {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--primary);
+    background: var(--primary-soft);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(0, 230, 118, 0.25);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+}
+
 .badge-organizer {
     font-size: 11px;
     font-weight: 700;
@@ -382,6 +402,23 @@ html, body {
     padding: 2px 7px;
     border-radius: var(--radius-full);
     border: 1px solid rgba(0, 230, 118, 0.2);
+}
+
+.btn-edit-player {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+    line-height: 1;
+    transition: all 0.15s ease;
+}
+
+.btn-edit-player:hover {
+    color: var(--primary);
+    background: var(--primary-soft);
 }
 
 .btn-remove-player {

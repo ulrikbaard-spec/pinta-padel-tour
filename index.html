@@ -429,6 +429,32 @@
         </div>
     </div>
 
+    <!-- MODAL: ÄNDRA / BYT NAMN PÅ SPELARE (ARRANGÖR) -->
+    <div class="modal-overlay" id="modalEditPlayer" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 class="modal-title">Hantera spelare</h3>
+                <button type="button" class="btn-close-modal" id="btnCloseEditPlayerModal">✕</button>
+            </div>
+            <form id="formEditPlayer">
+                <input type="hidden" id="editPlayerIndex" value="">
+                <div class="form-group">
+                    <label class="form-label" for="editPlayerNameInput">Spelarens namn</label>
+                    <input type="text" class="form-input" id="editPlayerNameInput" required autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="editPlayerPinInput">Spelarens PIN-kod (4 siffror)</label>
+                    <input type="text" class="form-input text-center tabular-nums" id="editPlayerPinInput" maxlength="4" pattern="\d{4}" required autocomplete="off">
+                    <span class="form-hint">Denna 4-siffriga kod används av spelaren för att logga in på sin egen mobil.</span>
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary btn-block">Spara ändring</button>
+                    <button type="button" class="btn btn-danger-sm btn-block" id="btnDeletePlayerFromModal">Ta bort spelare helt</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- MODAL: PIN-BEKRÄFTELSE -->
     <div class="modal-overlay" id="modalPinConfirm" style="display: none;">
         <div class="modal-card text-center">

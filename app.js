@@ -526,15 +526,86 @@
         return true;
     }
 
+    function openEditPlayerModal(playerIndex) {
+        const tourney = getActiveTournament();
+        if (!tourney || !tourney.players || !tourney.players[playerIndex]) return;
+        const player = tourney.players[playerIndex];
+
+        document.getElementById('editPlayerIndex').value = playerIndex;
+        document.getElementById('editPlayerNameInput').value = player.name;
+        document.getElementById('editPlayerPinInput').value = player.pin || '';
+
+        openModal('modalEditPlayer');
+    }
+
+    function saveEditedPlayer(playerIndex, newName, newPin) {
+        const tourney = getActiveTournament();
+        if (!tourney || !tourney.players || !tourney.players[playerIndex]) return;
+        const player = tourney.players[playerIndex];
+        const oldName = player.name;
+        const cleanName = newName.trim();
+        const cleanPin = (newPin || '').trim();
+
+        if (!cleanName) {
+            alert('Spelarens namn kan inte vara tomt.');
+            return;
+        }
+
+        player.name = cleanName;
+        if (cleanPin && cleanPin.length === 4) {
+            player.pin = cleanPin;
+        }
+
+        // Uppdatera spelarens namn i alla lottade omgångar och matcher
+        if (tourney.rounds) {
+            tourney.rounds.forEach(r => {
+                (r.matches || []).forEach(m => {
+                    (m.team1 || []).forEach(p => {
+                        if (p.id === player.id) p.name = cleanName;
+                    });
+                    (m.team2 || []).forEach(p => {
+                        if (p.id === player.id) p.name = cleanName;
+                    });
+                });
+            });
+        }
+
+        // Om detta var arrangören, uppdatera arrangörens namn i turneringen
+        if (player.isOrganizer && tourney.organizer) {
+            tourney.organizer.name = cleanName;
+        }
+
+        // Om den inloggade användaren är denna spelare, uppdatera sessionen
+        if (appState.currentUser && appState.currentUser.id === player.id) {
+            appState.currentUser.name = cleanName;
+            appState.currentUser.pin = player.pin;
+            saveUser();
+        }
+
+        saveState();
+        renderApp();
+        closeModal('modalEditPlayer');
+        playSuccess();
+        showToast(`✓ Spelare uppdaterad: "${cleanName}" (PIN: ${player.pin})`);
+    }
+
     function removePlayer(tourney, playerIndex) {
-        if (!tourney || tourney.isDrawn) return;
+        if (!tourney || !tourney.players || !tourney.players[playerIndex]) return;
         if (!isOrganizer()) {
             alert('Endast turneringens arrangör kan ta bort anmälda spelare.');
             return;
         }
 
         const player = tourney.players[playerIndex];
-        if (confirm(`Vill du ta bort "${player.name}" från turneringen?`)) {
+
+        if (tourney.isDrawn) {
+            if (confirm(`Turneringen är redan lottad. Vill du byta namn på "${player.name}" till en reserv/ersättare istället för att ta bort platsen helt?`)) {
+                openEditPlayerModal(playerIndex);
+                return;
+            }
+        }
+
+        if (confirm(`Vill du ta bort "${player.name}" från turneringen? Platsen blir ledig.`)) {
             // Om den borttagna spelaren var inloggad på denna enhet -> logga ut
             if (appState.currentUser && appState.currentUser.id === player.id) {
                 logoutUser();
@@ -884,19 +955,35 @@
                     badgeHtml = '<span class="badge-organizer">Arrangör</span>';
                 }
 
-                // Endast arrangören kan ta bort spelare med (✕) innan lottning
-                const deleteBtnHtml = (!tourney.isDrawn && isUserAdmin) 
-                    ? `<button type="button" class="btn-remove-player" data-idx="${i}" title="Ta bort spelare">✕</button>` 
-                    : '';
+                // PIN-kod: Arrangören ser KODEN FÖR ALLA SPELARE!
+                // Spelaren ser sin egen kod om det är hans plats.
+                let pinBadgeHtml = '';
+                if (isUserAdmin && player.pin) {
+                    pinBadgeHtml = `<span class="slot-pin-badge" title="Spelarens inloggningskod">PIN: ${player.pin}</span>`;
+                } else if (isMe && player.pin) {
+                    pinBadgeHtml = `<span class="slot-pin-badge" title="Din personliga inloggningskod">PIN: ${player.pin}</span>`;
+                }
+
+                // Arrangörsknappar: Ändra namn (✏️) och Ta bort (✕)
+                let adminActionBtns = '';
+                if (isUserAdmin) {
+                    adminActionBtns = `
+                        <button type="button" class="btn-edit-player" data-idx="${i}" title="Byt namn eller ändra PIN för ${escapeHtml(player.name)}">✏️</button>
+                        <button type="button" class="btn-remove-player" data-idx="${i}" title="Ta bort ${escapeHtml(player.name)}">✕</button>
+                    `;
+                }
 
                 row.innerHTML = `
                     <div class="slot-left">
                         <span class="slot-index">${i + 1}</span>
-                        <span class="slot-name">${escapeHtml(player.name)}</span>
+                        <div class="slot-name-wrap">
+                            <span class="slot-name">${escapeHtml(player.name)}</span>
+                            ${pinBadgeHtml}
+                        </div>
                     </div>
                     <div class="slot-badges">
                         ${badgeHtml}
-                        ${deleteBtnHtml}
+                        ${adminActionBtns}
                     </div>
                 `;
             } else {
@@ -1455,13 +1542,20 @@
             btnGoMatches.addEventListener('click', () => switchView('viewPlayers'));
         }
 
-        // Ta plats & Ta bort klick i spelarlistan
+        // Ta plats, Ändra namn & Ta bort klick i spelarlistan
         document.getElementById('rosterList').addEventListener('click', (e) => {
             const takeBtn = e.target.closest('.btn-take-slot');
             if (takeBtn) {
                 const slot = takeBtn.dataset.slot;
                 document.getElementById('takeSlotIndex').value = slot;
                 openModal('modalTakeSlot');
+                return;
+            }
+
+            const editBtn = e.target.closest('.btn-edit-player');
+            if (editBtn) {
+                const idx = parseInt(editBtn.dataset.idx, 10);
+                openEditPlayerModal(idx);
                 return;
             }
 
@@ -1543,6 +1637,25 @@
                 registerPlayer(tourney, name, slot);
                 closeModal('modalTakeSlot');
                 e.target.reset();
+            }
+        });
+
+        // Formulär: Ändra / byt namn på spelare (Arrangör)
+        document.getElementById('formEditPlayer').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const idx = parseInt(document.getElementById('editPlayerIndex').value, 10);
+            const newName = document.getElementById('editPlayerNameInput').value;
+            const newPin = document.getElementById('editPlayerPinInput').value;
+            saveEditedPlayer(idx, newName, newPin);
+        });
+
+        // Knapp: Ta bort spelare inifrån ändra-modalen
+        document.getElementById('btnDeletePlayerFromModal').addEventListener('click', () => {
+            const idx = parseInt(document.getElementById('editPlayerIndex').value, 10);
+            const tourney = getActiveTournament();
+            if (tourney && !isNaN(idx)) {
+                closeModal('modalEditPlayer');
+                removePlayer(tourney, idx);
             }
         });
 
