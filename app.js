@@ -550,6 +550,11 @@
             return false;
         }
 
+        // Validering godkänd -> Stäng popupen OMEDELBART så användaren får direkt respons
+        closeModal('modalTakeSlot');
+        const inputEl = document.getElementById('takeSlotPlayerName');
+        if (inputEl) inputEl.value = '';
+
         const pin = Math.floor(1000 + Math.random() * 9000).toString();
         const newPlayer = {
             id: 'p_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5),
@@ -577,12 +582,8 @@
         saveState();
         renderApp();
 
-        // Stäng alltid anmälningsmodalen direkt
-        closeModal('modalTakeSlot');
-
         if (wasOrganizer) {
-            // Arrangör lägger till spelare: stäng popup direkt och visa en bekräftelsetoast.
-            // Spelaren syns nu i listan med sin PIN-kod (PIN: xxxx) bredvid namnet.
+            // Arrangör lägger till spelare: popupen är redan stängd, bekräfta med toast.
             playSuccess();
             showToast(`✓ ${escapeHtml(newPlayer.name)} lades till (PIN: ${newPlayer.pin})`);
             return true;
@@ -1745,11 +1746,19 @@
             });
         });
 
-        // Modal stängningar
+        // Modal stängningar (kryssknapp & klick på bakgrunden)
         document.querySelectorAll('.btn-close-modal').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const modal = e.target.closest('.modal-overlay');
                 if (modal) modal.style.display = 'none';
+            });
+        });
+
+        document.querySelectorAll('.modal-overlay').forEach(overlay => {
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    overlay.style.display = 'none';
+                }
             });
         });
 
