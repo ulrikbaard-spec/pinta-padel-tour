@@ -30,7 +30,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
-    <link rel="stylesheet" href="style.css?v=2.5">
+    <link rel="stylesheet" href="style.css?v=2.6">
 </head>
 <body>
 
@@ -437,6 +437,66 @@
         </div>
     </div>
 
+    <!-- MODAL: INBJUDNINGSFRÅGA & DIREKTANMÄLAN FÖR DELTAGARE -->
+    <div class="modal-overlay" id="modalInviteJoin" style="display: none;">
+        <div class="modal-card">
+            <!-- Steg 1: Frågan om man vill gå med -->
+            <div id="inviteStepAsk">
+                <div class="modal-header">
+                    <h3 class="modal-title">🎾 Inbjudan till Padel</h3>
+                    <button type="button" class="btn-close-modal" id="btnCloseInviteStepAsk">✕</button>
+                </div>
+                <div class="text-center" style="margin-bottom: 20px;">
+                    <div style="font-size: 38px; margin-bottom: 8px;">🎾</div>
+                    <h2 style="font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: 6px;" id="inviteTourneyNameText">Turnering</h2>
+                    <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 12px;">
+                        Du är inbjuden av <strong id="inviteOrganizerNameText" style="color: var(--primary);">Arrangör</strong>.<br>
+                        Vill du gå med och spela i turneringen?
+                    </p>
+                    <div style="font-size: 12px; font-weight: 700; color: var(--primary); background: rgba(0, 230, 118, 0.1); border: 1px solid rgba(0, 230, 118, 0.25); padding: 6px 14px; border-radius: var(--radius-sm); display: inline-block;" id="inviteSlotsNotice">
+                        Lediga platser kvar!
+                    </div>
+                </div>
+                <div class="modal-actions" style="display: flex; flex-direction: column; gap: 8px;">
+                    <button type="button" class="btn btn-primary btn-block btn-lg" id="btnInviteAccept">
+                        🎾 Ja, jag vill gå med!
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-block" id="btnInviteDecline">
+                        Nej, bara titta på
+                    </button>
+                </div>
+                <div class="text-center" style="margin-top: 14px;">
+                    <button type="button" class="btn-link" id="btnInviteOpenLogin" style="font-size: 12px; color: var(--text-muted); background: none; border: none; cursor: pointer; text-decoration: underline;">
+                        Redan anmäld? Logga in med din PIN-kod
+                    </button>
+                </div>
+            </div>
+
+            <!-- Steg 2: Skriv in namn -->
+            <div id="inviteStepName" style="display: none;">
+                <div class="modal-header">
+                    <h3 class="modal-title">Vad heter du?</h3>
+                    <button type="button" class="btn-close-modal" id="btnCloseInviteStepName">✕</button>
+                </div>
+                <form id="formInviteJoinName">
+                    <div class="form-group">
+                        <label class="form-label" for="inviteJoinPlayerName">Ditt namn eller smeknamn</label>
+                        <input type="text" class="form-input" id="inviteJoinPlayerName" placeholder="Skriv ditt förnamn" required autocomplete="name">
+                        <span class="form-hint">Du loggas in direkt och får din 4-siffriga PIN-kod.</span>
+                    </div>
+                    <div class="modal-actions" style="display: flex; flex-direction: column; gap: 8px;">
+                        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btnSubmitInviteJoinName">
+                            Gå med & hämta mitt ID 🎾
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-block" id="btnInviteBackToAsk">
+                            ← Tillbaka
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL: ANMÄL SPELARE / TA PLATS -->
     <div class="modal-overlay" id="modalTakeSlot" style="display: none;">
         <div class="modal-card">
@@ -589,6 +649,6 @@
     <!-- 5. TOAST CONTAINER (Ångra, kopieringsnotiser) -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <script src="app.js?v=2.5"></script>
+    <script src="app.js?v=2.6"></script>
 </body>
 </html>

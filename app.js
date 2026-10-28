@@ -400,6 +400,7 @@
                         }
                         saveState(true);
                         renderApp();
+                        setTimeout(checkAutoInvitePrompt, 150);
                     }
                 }).catch(err => console.warn('Kunde inte läsa tourney från Firestore:', err));
             }
@@ -422,6 +423,8 @@
                 saveState();
             }
         }
+
+        setTimeout(checkAutoInvitePrompt, 200);
     }
 
     function getShareableUrl(tourney, forAdmin = false) {
@@ -469,6 +472,69 @@
             `Varmt välkommen! Klicka på länken för att välja din plats och följa spelschemat & liveresultaten direkt i mobilen:\n` +
             `👉 ${url}`
         );
+    }
+
+    /**
+     * Visar inbjudningsdialogen för en deltagare som klickat på inbjudningslänken
+     */
+    function showInvitePromptModal(tourney) {
+        if (!tourney) return;
+        const nameText = document.getElementById('inviteTourneyNameText');
+        const orgText = document.getElementById('inviteOrganizerNameText');
+        const slotsNotice = document.getElementById('inviteSlotsNotice');
+        const askStep = document.getElementById('inviteStepAsk');
+        const nameStep = document.getElementById('inviteStepName');
+        const inputName = document.getElementById('inviteJoinPlayerName');
+
+        const orgName = getOrganizerName(tourney);
+        const freeSlots = Math.max(0, 8 - (tourney.players ? tourney.players.length : 0));
+
+        if (nameText) nameText.textContent = tourney.name || 'Padelturnering';
+        if (orgText) orgText.textContent = orgName;
+        if (slotsNotice) {
+            slotsNotice.textContent = freeSlots === 1
+                ? 'Endast 1 plats kvar!'
+                : `${freeSlots} lediga platser kvar`;
+        }
+
+        if (askStep) askStep.style.display = 'block';
+        if (nameStep) nameStep.style.display = 'none';
+        if (inputName) inputName.value = '';
+
+        openModal('modalInviteJoin');
+    }
+
+    /**
+     * Kontrollerar om besökaren öppnade en inbjudningslänk och ska få frågan om att gå med
+     */
+    function checkAutoInvitePrompt() {
+        const tourney = getActiveTournament();
+        if (!tourney) return;
+
+        // Bara om användaren kom via en länk med parameter (?t= eller ?id=)
+        const urlParams = new URLSearchParams(window.location.search);
+        const hasTourneyParam = urlParams.has('t') || urlParams.has('id');
+        if (!hasTourneyParam) return;
+
+        // Om arrangörslänk används ska arrangören inte tillfrågas om att gå med som spelare
+        if (urlParams.has('key') || urlParams.has('admin')) return;
+
+        // Om användaren redan är inloggad som arrangör
+        if (isOrganizer()) return;
+
+        // Om användaren redan är inloggad som spelare i denna turnering
+        if (appState.currentUser && appState.currentUser.role === 'player') {
+            const isAlreadyIn = (tourney.players || []).some(p => p.id === appState.currentUser.id);
+            if (isAlreadyIn) return;
+        }
+
+        // Om turneringen redan är lottad eller full
+        if (tourney.isDrawn || (tourney.players && tourney.players.length >= 8)) return;
+
+        // Om användaren redan avböjt i denna session
+        if (sessionStorage.getItem(`pinta_declined_invite_${tourney.id}`) === 'true') return;
+
+        showInvitePromptModal(tourney);
     }
 
     // =========================================================================
@@ -653,8 +719,11 @@
 
         // Validering godkänd -> Stäng popupen OMEDELBART så användaren får direkt respons
         closeModal('modalTakeSlot');
+        closeModal('modalInviteJoin');
         const inputEl = document.getElementById('takeSlotPlayerName');
         if (inputEl) inputEl.value = '';
+        const inviteInput = document.getElementById('inviteJoinPlayerName');
+        if (inviteInput) inviteInput.value = '';
 
         const pin = Math.floor(1000 + Math.random() * 9000).toString();
         const newPlayer = {
@@ -2158,6 +2227,80 @@
             closeModal('modalAuth');
             logoutUser();
         });
+
+        // =====================================================================
+        // INBJUDNINGSMODAL (GÅ MED, SKRIV NAMN & FÅ KOD)
+        // =====================================================================
+
+        const btnInviteAccept = document.getElementById('btnInviteAccept');
+        if (btnInviteAccept) {
+            btnInviteAccept.addEventListener('click', () => {
+                const askStep = document.getElementById('inviteStepAsk');
+                const nameStep = document.getElementById('inviteStepName');
+                const nameInput = document.getElementById('inviteJoinPlayerName');
+                if (askStep) askStep.style.display = 'none';
+                if (nameStep) nameStep.style.display = 'block';
+                if (nameInput) setTimeout(() => nameInput.focus(), 100);
+                playClick();
+            });
+        }
+
+        const btnInviteDecline = document.getElementById('btnInviteDecline');
+        if (btnInviteDecline) {
+            btnInviteDecline.addEventListener('click', () => {
+                const tourney = getActiveTournament();
+                if (tourney) sessionStorage.setItem(`pinta_declined_invite_${tourney.id}`, 'true');
+                closeModal('modalInviteJoin');
+                playClick();
+            });
+        }
+
+        const btnCloseInviteStepAsk = document.getElementById('btnCloseInviteStepAsk');
+        if (btnCloseInviteStepAsk) {
+            btnCloseInviteStepAsk.addEventListener('click', () => {
+                const tourney = getActiveTournament();
+                if (tourney) sessionStorage.setItem(`pinta_declined_invite_${tourney.id}`, 'true');
+                closeModal('modalInviteJoin');
+            });
+        }
+
+        const btnCloseInviteStepName = document.getElementById('btnCloseInviteStepName');
+        if (btnCloseInviteStepName) {
+            btnCloseInviteStepName.addEventListener('click', () => closeModal('modalInviteJoin'));
+        }
+
+        const btnInviteBackToAsk = document.getElementById('btnInviteBackToAsk');
+        if (btnInviteBackToAsk) {
+            btnInviteBackToAsk.addEventListener('click', () => {
+                const askStep = document.getElementById('inviteStepAsk');
+                const nameStep = document.getElementById('inviteStepName');
+                if (askStep) askStep.style.display = 'block';
+                if (nameStep) nameStep.style.display = 'none';
+                playClick();
+            });
+        }
+
+        const btnInviteOpenLogin = document.getElementById('btnInviteOpenLogin');
+        if (btnInviteOpenLogin) {
+            btnInviteOpenLogin.addEventListener('click', () => {
+                closeModal('modalInviteJoin');
+                openModal('modalAuth');
+            });
+        }
+
+        const formInviteJoinName = document.getElementById('formInviteJoinName');
+        if (formInviteJoinName) {
+            formInviteJoinName.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const tourney = getActiveTournament();
+                if (!tourney) return;
+                const input = document.getElementById('inviteJoinPlayerName');
+                const name = input ? input.value.trim() : '';
+                if (!name) return;
+                const nextSlot = (tourney.players || []).length;
+                registerPlayer(tourney, name, nextSlot);
+            });
+        }
     }
 
     // =========================================================================
@@ -2175,6 +2318,8 @@
         if (getActiveTournament()) {
             switchView('viewPlayers');
         }
+
+        setTimeout(checkAutoInvitePrompt, 350);
     }
 
     if (document.readyState === 'loading') {
