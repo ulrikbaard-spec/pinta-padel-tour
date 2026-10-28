@@ -25,7 +25,18 @@
         cloudConnected: false
     };
 
-    let mqttClient = null;
+    const firebaseConfig = {
+        apiKey: "AIzaSyBAypviK71lkZK2COxt09t6-aLCr9JeAp8",
+        authDomain: "pinta-padel.firebaseapp.com",
+        projectId: "pinta-padel",
+        storageBucket: "pinta-padel.firebasestorage.app",
+        messagingSenderId: "95267842872",
+        appId: "1:95267842872:web:f317835fa879cff72aafcd",
+        measurementId: "G-BSFFPSBBK3"
+    };
+
+    let db = null;
+    let firestoreUnsubscribe = null;
     let broadcastChannel = null;
     let undoToastTimer = null;
     let audioCtx = null;
@@ -146,7 +157,7 @@
         checkUrlForSharedTournament();
     }
 
-    function saveState() {
+    function saveState(skipCloud = false) {
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify({
                 tournaments: appState.tournaments,
@@ -154,7 +165,9 @@
                 activeTournamentId: appState.activeTournamentId
             }));
             broadcastLocalUpdate();
-            syncToCloud();
+            if (!skipCloud) {
+                syncToCloud();
+            }
         } catch (e) {
             console.error('Kunde inte spara state:', e);
         }
@@ -206,8 +219,24 @@
     }
 
     // =========================================================================
-    // 4. REALTI DSSYNK (MQTT & BROADCASTCHANNEL)
+    // 4. REALTIDSSYNK (FIREBASE FIRESTORE & BROADCASTCHANNEL)
     // =========================================================================
+
+    function initFirebase() {
+        try {
+            if (typeof firebase !== 'undefined') {
+                if (!firebase.apps || !firebase.apps.length) {
+                    firebase.initializeApp(firebaseConfig);
+                }
+                db = firebase.firestore();
+                try {
+                    db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+                } catch (e) {}
+            }
+        } catch (e) {
+            console.error('Firebase init-fel:', e);
+        }
+    }
 
     try {
         if ('BroadcastChannel' in window) {
@@ -230,77 +259,88 @@
     function initCloudSync() {
         const active = getActiveTournament();
         const dot = document.getElementById('syncDot');
-        if (!active || typeof Paho === 'undefined' || !Paho.MQTT) {
-            if (dot) dot.classList.add('offline');
+
+        if (!active || !db) {
+            if (dot) {
+                dot.classList.add('offline');
+                dot.title = 'Offline / Ingen molndatabas';
+            }
             return;
         }
 
+        // Avbryt eventuell tidigare snapshot-prenumeration
+        if (firestoreUnsubscribe) {
+            firestoreUnsubscribe();
+            firestoreUnsubscribe = null;
+        }
+
         try {
-            if (mqttClient && mqttClient.isConnected()) return;
+            const docRef = db.collection('tournaments').doc(active.id);
 
-            const clientId = 'pinta_' + Math.random().toString(16).substring(2, 10);
-            mqttClient = new Paho.MQTT.Client('broker.hivemq.com', 8884, '/mqtt', clientId);
+            firestoreUnsubscribe = docRef.onSnapshot((doc) => {
+                if (dot) {
+                    dot.classList.remove('offline');
+                    dot.title = 'Firebase molndatabas ansluten';
+                }
+                appState.cloudConnected = true;
 
-            mqttClient.onConnectionLost = () => {
-                appState.cloudConnected = false;
-                if (dot) dot.classList.add('offline');
-                setTimeout(initCloudSync, 4000);
-            };
+                if (doc.exists) {
+                    const cloudTourney = doc.data();
+                    if (cloudTourney && cloudTourney.id === appState.activeTournamentId) {
+                        const idx = appState.tournaments.findIndex(t => t.id === cloudTourney.id);
+                        const localTourney = idx >= 0 ? appState.tournaments[idx] : null;
 
-            mqttClient.onMessageArrived = (message) => {
-                try {
-                    const data = JSON.parse(message.payloadString);
-                    if (data && data.tourney && data.tourney.id === appState.activeTournamentId) {
-                        const idx = appState.tournaments.findIndex(t => t.id === data.tourney.id);
-                        if (idx >= 0) {
-                            appState.tournaments[idx] = data.tourney;
-                        } else {
-                            appState.tournaments.push(data.tourney);
+                        const cloudUpdated = cloudTourney.updatedAt || 0;
+                        const localUpdated = (localTourney && localTourney.updatedAt) || 0;
+
+                        // Uppdatera endast om Firestore har nyare data eller lokal data saknas
+                        if (!localTourney || cloudUpdated > localUpdated) {
+                            if (idx >= 0) {
+                                appState.tournaments[idx] = cloudTourney;
+                            } else {
+                                appState.tournaments.push(cloudTourney);
+                            }
+                            saveState(true);
+                            renderApp();
+                            playTone(720, 0.05);
                         }
-                        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-                            tournaments: appState.tournaments,
-                            deletedTournaments: appState.deletedTournaments,
-                            activeTournamentId: appState.activeTournamentId
-                        }));
-                        renderApp();
-                        playTone(720, 0.05);
                     }
-                } catch (e) {}
-            };
-
-            mqttClient.connect({
-                useSSL: true,
-                timeout: 5,
-                keepAliveInterval: 30,
-                onSuccess: () => {
-                    appState.cloudConnected = true;
-                    if (dot) dot.classList.remove('offline');
-                    mqttClient.subscribe(`pinta_padel_tour/tourney/${active.id}`);
-                },
-                onFailure: () => {
-                    appState.cloudConnected = false;
-                    if (dot) dot.classList.add('offline');
+                } else {
+                    // Turneringen finns inte i Firestore än -> ladda upp lokal version
+                    syncToCloud();
+                }
+            }, (error) => {
+                console.warn('Firestore snapshot fel:', error);
+                appState.cloudConnected = false;
+                if (dot) {
+                    dot.classList.add('offline');
+                    dot.title = 'Offline / Firestore fel: ' + (error.message || error.code);
                 }
             });
         } catch (e) {
+            console.error('Kunde inte koppla upp Firestore snapshot:', e);
             if (dot) dot.classList.add('offline');
         }
     }
 
     function syncToCloud() {
         const active = getActiveTournament();
-        if (!active || !mqttClient || !mqttClient.isConnected()) return;
+        if (!active || !db) return;
         try {
-            const topic = `pinta_padel_tour/tourney/${active.id}`;
-            const message = new Paho.MQTT.Message(JSON.stringify({
-                type: 'SYNC',
-                tourney: active,
-                timestamp: Date.now()
-            }));
-            message.destinationName = topic;
-            message.retained = true;
-            mqttClient.send(message);
-        } catch (e) {}
+            active.updatedAt = Date.now();
+            const docRef = db.collection('tournaments').doc(active.id);
+            const plainTourney = JSON.parse(JSON.stringify(active));
+            docRef.set(plainTourney, { merge: true }).catch((err) => {
+                console.error('Firestore save error:', err);
+                const dot = document.getElementById('syncDot');
+                if (dot) {
+                    dot.classList.add('offline');
+                    dot.title = 'Fel vid sparning till Firestore (kontrollera Firestore testregler)';
+                }
+            });
+        } catch (e) {
+            console.error('Kunde inte synka till Firestore:', e);
+        }
     }
 
     // =========================================================================
@@ -331,7 +371,24 @@
                 appState.tournaments.push(found);
             }
             appState.activeTournamentId = tourneyId;
-            saveState();
+            saveState(true);
+
+            // Om vi har Firestore tillgängligt, hämta turneringen direkt från molnet
+            if (db) {
+                db.collection('tournaments').doc(tourneyId).get().then(doc => {
+                    if (doc.exists) {
+                        const cloudData = doc.data();
+                        const idx = appState.tournaments.findIndex(t => t.id === tourneyId);
+                        if (idx >= 0) {
+                            appState.tournaments[idx] = cloudData;
+                        } else {
+                            appState.tournaments.push(cloudData);
+                        }
+                        saveState(true);
+                        renderApp();
+                    }
+                }).catch(err => console.warn('Kunde inte läsa tourney från Firestore:', err));
+            }
         }
 
         const active = getActiveTournament();
@@ -754,7 +811,10 @@
             const pIdx = appState.deletedTournaments.findIndex(t => t.id === tourneyId);
             if (pIdx >= 0) {
                 appState.deletedTournaments.splice(pIdx, 1);
-                saveState();
+                saveState(true);
+                if (db) {
+                    db.collection('tournaments').doc(tourneyId).delete().catch(() => {});
+                }
                 renderArchiveModal();
                 playClick();
             }
@@ -1885,6 +1945,7 @@
     // =========================================================================
 
     function init() {
+        initFirebase();
         loadState();
         setupEventListeners();
         renderApp();

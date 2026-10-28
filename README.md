@@ -17,10 +17,10 @@ Byggd från grunden med mobil-först-fokus och designad enligt principerna i `fr
   - Spelare anger bara sitt förnamn och får en 4-siffrig PIN-kod.
   - Arrangören får automatisk kontroll via lokal `adminKey` och kort kod (`PT-xx`).
   - Arrangören förblir inloggad som arrangör när vänner läggs till på plats 2–8.
-- **Realtidssynk utan backend:**
+- **Realtidssynk & Molndatabas (Flera dagar):**
   - `localStorage` för full offline-persistens.
   - `BroadcastChannel` för direkt synk mellan flikar på samma enhet.
-  - **Paho MQTT over WebSockets** mot HiveMQ för realtidsuppdatering mellan spelarnas mobiler.
+  - **Firebase Firestore** för permanent molnlagring och realtidssynk mellan spelarnas mobiler.
 - **Arkiv, Papperskorg & Ångra:**
   - Mjuk radering med 8 sekunders "Ångra ↺"-toast.
   - Komplett nollställning vid radering med automatisk övergång till Startskärmen.
@@ -31,6 +31,8 @@ Byggd från grunden med mobil-först-fokus och designad enligt principerna i `fr
 
 ```bash
 # Kör med lokal server:
+powershell -File server.ps1
+# eller:
 npx serve .
 # eller öppna direkt:
 start index.html
@@ -40,5 +42,5 @@ start index.html
 
 - **HTML5 & Vanilla CSS3:** Minimalistiskt mörkt tema (`#0a0f0d`, `#121916`, `#00e676`), `Plus Jakarta Sans`, touch-optimerade element.
 - **Vanilla JavaScript (ES6+):** Rent, modulärt och snabbt utan ramverks-overhead.
-- **Paho MQTT:** WebSocket-klient för realtidsdelning.
+- **Firebase Firestore:** Permanent molndatabas med realtidssynk över dagar och veckor.
 - **Web Audio API:** Diskreta systemljud genererade direkt i webbläsaren.
