@@ -577,7 +577,18 @@
         saveState();
         renderApp();
 
-        // Visa PIN-bekräftelse med tydlig kod och kopieringsmöjlighet
+        // Stäng alltid anmälningsmodalen direkt
+        closeModal('modalTakeSlot');
+
+        if (wasOrganizer) {
+            // Arrangör lägger till spelare: stäng popup direkt och visa en bekräftelsetoast.
+            // Spelaren syns nu i listan med sin PIN-kod (PIN: xxxx) bredvid namnet.
+            playSuccess();
+            showToast(`✓ ${escapeHtml(newPlayer.name)} lades till (PIN: ${newPlayer.pin})`);
+            return true;
+        }
+
+        // För gäster/spelare som anmäler sig själva på sin egen mobil: visa PIN-bekräftelse
         const modalTitle = document.getElementById('pinConfirmTitle');
         const modalDesc = document.getElementById('pinConfirmDesc');
         const modalLabel = document.getElementById('pinDisplayLabel');
@@ -587,22 +598,12 @@
         const closeBtn = document.getElementById('btnClosePinConfirm');
 
         if (modalCode) modalCode.textContent = newPlayer.pin;
-
-        if (wasOrganizer) {
-            if (modalTitle) modalTitle.textContent = 'Spelare tillagd!';
-            if (modalDesc) modalDesc.innerHTML = `<strong>${escapeHtml(newPlayer.name)}</strong> har lagts till på Plats ${tourney.players.length} av 8.`;
-            if (modalLabel) modalLabel.textContent = 'Spelarens inloggningskod:';
-            if (modalTip) modalTip.innerHTML = `Ge koden <strong>${newPlayer.pin}</strong> till spelaren så kan de logga in på sin egen mobil. Du förblir inloggad som arrangör.`;
-            if (copyBtn) copyBtn.textContent = `📋 Kopiera spelarens kod (${newPlayer.pin})`;
-            if (closeBtn) closeBtn.textContent = 'Stäng';
-        } else {
-            if (modalTitle) modalTitle.textContent = `🎉 Välkommen, ${escapeHtml(newPlayer.name)}!`;
-            if (modalDesc) modalDesc.innerHTML = `Du är nu anmäld och <strong>automatiskt inloggad</strong> på Plats ${tourney.players.length} av 8.`;
-            if (modalLabel) modalLabel.textContent = 'Din personliga inloggningskod:';
-            if (modalTip) modalTip.innerHTML = `<strong>Spara din 4-siffriga kod!</strong> Koden visas även vid ditt namn i spelarlistan (PIN: ${newPlayer.pin}). Du använder den om du byter telefon eller behöver logga in igen.`;
-            if (copyBtn) copyBtn.textContent = `📋 Kopiera min kod (${newPlayer.pin})`;
-            if (closeBtn) closeBtn.textContent = 'Jag har sparat koden – Fortsätt';
-        }
+        if (modalTitle) modalTitle.textContent = `🎉 Välkommen, ${escapeHtml(newPlayer.name)}!`;
+        if (modalDesc) modalDesc.innerHTML = `Du är nu anmäld och <strong>automatiskt inloggad</strong> på Plats ${tourney.players.length} av 8.`;
+        if (modalLabel) modalLabel.textContent = 'Din personliga inloggningskod:';
+        if (modalTip) modalTip.innerHTML = `<strong>Spara din 4-siffriga kod!</strong> Koden visas även vid ditt namn i spelarlistan (PIN: ${newPlayer.pin}). Du använder den om du byter telefon eller behöver logga in igen.`;
+        if (copyBtn) copyBtn.textContent = `📋 Kopiera min kod (${newPlayer.pin})`;
+        if (closeBtn) closeBtn.textContent = 'Jag har sparat koden – Fortsätt';
 
         openModal('modalPinConfirm');
         playSuccess();
