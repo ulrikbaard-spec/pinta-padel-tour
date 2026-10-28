@@ -575,7 +575,6 @@
         }
 
         saveState();
-        triggerCloudSyncDebounced();
         renderApp();
 
         // Visa PIN-bekräftelse med tydlig kod och kopieringsmöjlighet
