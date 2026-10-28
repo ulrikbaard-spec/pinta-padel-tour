@@ -434,6 +434,43 @@
         return `${base}?t=${tourney.id}&n=${cleanName}`;
     }
 
+    /**
+     * Hämtar arrangörens namn på ett robust sätt
+     */
+    function getOrganizerName(tourney) {
+        if (!tourney) return 'Arrangören';
+        if (tourney.organizer && tourney.organizer.name && tourney.organizer.name.trim()) {
+            return tourney.organizer.name.trim();
+        }
+        const orgPlayer = (tourney.players || []).find(p => p.isOrganizer);
+        if (orgPlayer && orgPlayer.name && orgPlayer.name.trim()) {
+            return orgPlayer.name.trim();
+        }
+        return 'Arrangören';
+    }
+
+    /**
+     * Skapar ett snyggt, välkomnande inbjudningsmeddelande för WhatsApp och kopiering
+     */
+    function getInviteShareMessage(tourney) {
+        if (!tourney) return '';
+        const url = getShareableUrl(tourney, false);
+        const tourneyName = (tourney.name || 'Padelturnering').trim();
+        const organizerName = getOrganizerName(tourney);
+        const formatName = tourney.format === 'classic7'
+            ? 'Klassisk Americano (7 omgångar)'
+            : 'Lag-serie 21 (7 omgångar × 3 matcher = 21 matcher)';
+
+        return (
+            `🎾 *Inbjudan till Padelturnering!*\n\n` +
+            `🏆 *Turnering:* ${tourneyName}\n` +
+            `👤 *Inbjuden av:* ${organizerName}\n` +
+            `📋 *Format:* ${formatName}\n\n` +
+            `Varmt välkommen! Klicka på länken för att välja din plats och följa spelschemat & liveresultaten direkt i mobilen:\n` +
+            `👉 ${url}`
+        );
+    }
+
     // =========================================================================
     // 6. ANVÄNDARROLLER & BEHÖRIGHETER
     // =========================================================================
@@ -1813,16 +1850,16 @@
             }
         });
 
-        // Länkdelning
+        // Inbjudan & Länkdelning
         const copyInviteHandler = () => {
             const active = getActiveTournament();
             if (!active) return;
-            const url = getShareableUrl(active, false);
-            navigator.clipboard.writeText(url).then(() => {
-                showToast('📋 Deltagarlänk kopierad!');
+            const message = getInviteShareMessage(active);
+            navigator.clipboard.writeText(message).then(() => {
+                showToast('📋 Inbjudan kopierad till urklipp!');
                 playSuccess();
             }).catch(() => {
-                prompt('Kopiera deltagarlänken här:', url);
+                prompt('Kopiera inbjudan här:', message);
             });
         };
 
@@ -1841,8 +1878,8 @@
         const whatsappInviteHandler = () => {
             const active = getActiveTournament();
             if (!active) return;
-            const url = getShareableUrl(active, false);
-            const text = encodeURIComponent(`Hej! Här är länken till vår padelturnering ${active.name}: ${url}`);
+            const message = getInviteShareMessage(active);
+            const text = encodeURIComponent(message);
             window.open(`https://wa.me/?text=${text}`, '_blank');
         };
 

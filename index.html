@@ -3,11 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Pinta Padel Tour – Turneringsmotor</title>
-    <meta name="description" content="Minimalistisk och blixtsnabb turneringsmotor för padel (8 spelare, 2 banor, 7 omgångar).">
+    <title>🎾 Inbjudan till Padelturnering – Pinta Padel Tour</title>
+    <meta name="description" content="Du är inbjuden till padelturnering! Klicka här för att anmäla dig, se spelschemat och följa liveresultaten direkt i mobilen.">
     <meta name="theme-color" content="#0a0f0d">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <!-- Open Graph för snygg förhandsvisning i WhatsApp, iMessage & sociala medier -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Pinta Padel Tour">
+    <meta property="og:title" content="🎾 Inbjudan till Padelturnering">
+    <meta property="og:description" content="Du är inbjuden! Klicka här för att anmäla dig, se spelschemat och följa liveresultaten live i mobilen.">
+    <meta property="og:url" content="https://ulrikbaard-spec.github.io/pinta-padel-tour/">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="🎾 Inbjudan till Padelturnering">
+    <meta name="twitter:description" content="Du är inbjuden! Klicka här för att anmäla dig, se spelschemat och följa liveresultaten live i mobilen.">
 
     <!-- Typografi: Plus Jakarta Sans för atletisk, ren precision -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,7 +30,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
-    <link rel="stylesheet" href="style.css?v=2.4">
+    <link rel="stylesheet" href="style.css?v=2.5">
 </head>
 <body>
 
@@ -89,7 +101,7 @@
                 <!-- Länkdelning (Döljs automatiskt vid 8/8 eller när lottningen är gjord) -->
                 <div class="invite-strip" id="inviteStrip">
                     <button type="button" class="btn btn-secondary btn-sm" id="btnCopyInviteLink">
-                        📋 Kopiera länk
+                        📋 Kopiera inbjudan
                     </button>
                     <button type="button" class="btn btn-secondary btn-sm btn-whatsapp" id="btnWhatsappInvite">
                         💬 Dela WhatsApp
@@ -280,12 +292,12 @@
                             <div class="menu-item-content">
                                 <span class="menu-item-icon">📢</span>
                                 <div>
-                                    <strong>Inbjudningslänk</strong>
-                                    <span class="menu-item-sub">Deltagarlänk för vänner (anmälan & live-visning)</span>
+                                    <strong>Inbjudan till deltagare</strong>
+                                    <span class="menu-item-sub">Skicka välkomnande inbjudan med turneringsnamn & länk</span>
                                 </div>
                             </div>
                             <div class="menu-actions-row">
-                                <button type="button" class="btn btn-secondary btn-sm" id="btnMenuCopyLink">Kopiera</button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btnMenuCopyLink">Kopiera inbjudan</button>
                                 <button type="button" class="btn btn-secondary btn-sm btn-whatsapp" id="btnMenuWhatsapp">WhatsApp</button>
                             </div>
                         </div>
@@ -577,6 +589,6 @@
     <!-- 5. TOAST CONTAINER (Ångra, kopieringsnotiser) -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <script src="app.js?v=2.4"></script>
+    <script src="app.js?v=2.5"></script>
 </body>
 </html>
