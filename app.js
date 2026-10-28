@@ -22,6 +22,7 @@
         activeTournamentId: null,
         currentUser: null,       // { id, name, role: 'admin'|'player', pin, tourneyKey }
         currentRoundIndex: 0,    // 0..6
+        currentSubMatchIndex: 0, // 0..2 (Match 1, Match 2, Match 3 i Lag-serie 21)
         cloudConnected: false
     };
 
@@ -42,7 +43,7 @@
     let audioCtx = null;
     let selectedPlayerForLogin = null;
 
-    // Standard balanserad Americano-matris för 8 spelare (7 omgångar)
+    // Standard balanserad Americano-matris för 8 spelare (7 omgångar, 1 match per omgång)
     // Varje spelare spelar med alla andra 7 exakt en gång och möter alla två gånger.
     const SCHEDULE_MATRIX = [
         // Omgång 1
@@ -59,6 +60,19 @@
         { court1: [[0, 6], [1, 7]], court2: [[2, 4], [3, 5]] },
         // Omgång 7
         { court1: [[0, 7], [3, 6]], court2: [[1, 4], [2, 5]] }
+    ];
+
+    // 1-faktorisering för 8 spelare (7 omgångar av 4 unika par)
+    // Varje spelare bildar par med alla övriga 7 spelare exakt en gång (totalt 28 unika par).
+    // I varje omgång möter paren varandra i 3 delmatcher: 7 omgångar x 3 matcher = 21 matcher per spelare!
+    const PAIRING_ROUNDS_7 = [
+        [[0, 7], [1, 6], [2, 5], [3, 4]], // Omgång 1
+        [[1, 7], [2, 0], [3, 6], [4, 5]], // Omgång 2
+        [[2, 7], [3, 1], [4, 0], [5, 6]], // Omgång 3
+        [[3, 7], [4, 2], [5, 1], [6, 0]], // Omgång 4
+        [[4, 7], [5, 3], [6, 2], [0, 1]], // Omgång 5
+        [[5, 7], [6, 4], [0, 3], [1, 2]], // Omgång 6
+        [[6, 7], [0, 5], [1, 4], [2, 3]]  // Omgång 7
     ];
 
     // =========================================================================
@@ -454,6 +468,7 @@
     }
 
     function canUserEditMatch(match) {
+        if (!match) return false;
         // Arrangören har full behörighet att redigera alla matcher
         if (isOrganizer()) return true;
 
@@ -462,6 +477,55 @@
 
         // Gäster och spelare på den andra banan kan inte redigera
         return false;
+    }
+
+    /**
+     * Hämtar alla matcher i en omgång (stödjer både subMatches och traditionella matches)
+     */
+    function getAllMatchesInRound(round) {
+        if (!round) return [];
+        if (round.subMatches && round.subMatches.length > 0) {
+            const list = [];
+            round.subMatches.forEach(sm => {
+                if (sm.matches) list.push(...sm.matches);
+            });
+            return list;
+        }
+        return round.matches || [];
+    }
+
+    /**
+     * Hämtar den aktiva matchen för en specifik bana (0 = Bana 1, 1 = Bana 2)
+     * baserat på aktuell delmatch (currentSubMatchIndex).
+     */
+    function getActiveMatchForCourt(round, courtIndex) {
+        if (!round) return null;
+        if (round.subMatches && round.subMatches.length > 0) {
+            const subIdx = appState.currentSubMatchIndex || 0;
+            const sub = round.subMatches[subIdx] || round.subMatches[0];
+            return sub && sub.matches ? sub.matches[courtIndex] : null;
+        }
+        return round.matches ? round.matches[courtIndex] : null;
+    }
+
+    /**
+     * Hittar lagkamraten för en spelare i den aktuella omgången
+     */
+    function getRoundPartner(round, userId, userName) {
+        if (!round) return null;
+        const allMatches = getAllMatchesInRound(round);
+        const uName = (userName || '').toLowerCase();
+        for (const m of allMatches) {
+            const inT1 = (m.team1 || []).findIndex(p => p.id === userId || (p.name && uName && p.name.toLowerCase() === uName));
+            if (inT1 !== -1 && m.team1.length === 2) {
+                return m.team1[1 - inT1];
+            }
+            const inT2 = (m.team2 || []).findIndex(p => p.id === userId || (p.name && uName && p.name.toLowerCase() === uName));
+            if (inT2 !== -1 && m.team2.length === 2) {
+                return m.team2[1 - inT2];
+            }
+        }
+        return null;
     }
 
     // =========================================================================
@@ -689,7 +753,7 @@
         // Uppdatera spelarens namn i alla lottade omgångar och matcher
         if (tourney.rounds) {
             tourney.rounds.forEach(r => {
-                (r.matches || []).forEach(m => {
+                getAllMatchesInRound(r).forEach(m => {
                     (m.team1 || []).forEach(p => {
                         if (p.id === player.id) p.name = cleanName;
                     });
@@ -767,36 +831,81 @@
         tourney.players = shuffled;
 
         const rounds = [];
-        SCHEDULE_MATRIX.forEach((roundData, rIndex) => {
-            const court1Pairs = roundData.court1;
-            const court2Pairs = roundData.court2;
 
-            rounds.push({
-                roundNumber: rIndex + 1,
-                matches: [
+        if (tourney.format === 'classic7') {
+            // Klassisk Americano (7 omgångar x 1 match per bana = 7 matcher per spelare)
+            SCHEDULE_MATRIX.forEach((roundData, rIndex) => {
+                const court1Pairs = roundData.court1;
+                const court2Pairs = roundData.court2;
+
+                rounds.push({
+                    roundNumber: rIndex + 1,
+                    matches: [
+                        {
+                            court: 1,
+                            team1: [shuffled[court1Pairs[0][0]], shuffled[court1Pairs[0][1]]],
+                            team2: [shuffled[court1Pairs[1][0]], shuffled[court1Pairs[1][1]]],
+                            score1: 0,
+                            score2: 0,
+                            completed: false
+                        },
+                        {
+                            court: 2,
+                            team1: [shuffled[court2Pairs[0][0]], shuffled[court2Pairs[0][1]]],
+                            team2: [shuffled[court2Pairs[1][0]], shuffled[court2Pairs[1][1]]],
+                            score1: 0,
+                            score2: 0,
+                            completed: false
+                        }
+                    ]
+                });
+            });
+        } else {
+            // Standard: Lag-serie 21 (7 omgångar x 3 delmatcher = 21 matcher per spelare)
+            PAIRING_ROUNDS_7.forEach((roundPairs, rIndex) => {
+                const pA = [shuffled[roundPairs[0][0]], shuffled[roundPairs[0][1]]];
+                const pB = [shuffled[roundPairs[1][0]], shuffled[roundPairs[1][1]]];
+                const pC = [shuffled[roundPairs[2][0]], shuffled[roundPairs[2][1]]];
+                const pD = [shuffled[roundPairs[3][0]], shuffled[roundPairs[3][1]]];
+
+                const subMatches = [
                     {
-                        court: 1,
-                        team1: [shuffled[court1Pairs[0][0]], shuffled[court1Pairs[0][1]]],
-                        team2: [shuffled[court1Pairs[1][0]], shuffled[court1Pairs[1][1]]],
-                        score1: 0,
-                        score2: 0,
-                        completed: false
+                        subMatchNumber: 1,
+                        matches: [
+                            { court: 1, team1: pA, team2: pB, score1: 0, score2: 0, completed: false },
+                            { court: 2, team1: pC, team2: pD, score1: 0, score2: 0, completed: false }
+                        ]
                     },
                     {
-                        court: 2,
-                        team1: [shuffled[court2Pairs[0][0]], shuffled[court2Pairs[0][1]]],
-                        team2: [shuffled[court2Pairs[1][0]], shuffled[court2Pairs[1][1]]],
-                        score1: 0,
-                        score2: 0,
-                        completed: false
+                        subMatchNumber: 2,
+                        matches: [
+                            { court: 1, team1: pA, team2: pC, score1: 0, score2: 0, completed: false },
+                            { court: 2, team1: pB, team2: pD, score1: 0, score2: 0, completed: false }
+                        ]
+                    },
+                    {
+                        subMatchNumber: 3,
+                        matches: [
+                            { court: 1, team1: pA, team2: pD, score1: 0, score2: 0, completed: false },
+                            { court: 2, team1: pB, team2: pC, score1: 0, score2: 0, completed: false }
+                        ]
                     }
-                ]
+                ];
+
+                rounds.push({
+                    roundNumber: rIndex + 1,
+                    subMatches: subMatches,
+                    matches: subMatches[0].matches // bakåtkompatibilitet
+                });
             });
-        });
+        }
 
         tourney.rounds = rounds;
         tourney.isDrawn = true;
         tourney.status = 'active';
+
+        appState.currentRoundIndex = 0;
+        appState.currentSubMatchIndex = 0;
 
         saveState();
         renderApp();
@@ -891,7 +1000,7 @@
         });
 
         (tourney.rounds || []).forEach(r => {
-            (r.matches || []).forEach(m => {
+            getAllMatchesInRound(r).forEach(m => {
                 if (m.completed) {
                     const s1 = parseInt(m.score1, 10) || 0;
                     const s2 = parseInt(m.score2, 10) || 0;
@@ -941,7 +1050,7 @@
         if (!tourney || !tourney.rounds || !tourney.rounds[appState.currentRoundIndex]) return;
 
         const round = tourney.rounds[appState.currentRoundIndex];
-        const match = round.matches[courtIndex];
+        const match = getActiveMatchForCourt(round, courtIndex);
         if (!match) return;
 
         if (!canUserEditMatch(match)) {
@@ -962,7 +1071,8 @@
         saveState();
         renderApp();
         playScoreSaved();
-        showToast(`Bana ${courtIndex + 1} sparad: ${s1} – ${s2}`);
+        const subLabel = (round.subMatches && round.subMatches.length > 0) ? ` (Match ${appState.currentSubMatchIndex + 1})` : '';
+        showToast(`Bana ${courtIndex + 1}${subLabel} sparad: ${s1} – ${s2}`);
     }
 
     // =========================================================================
@@ -1007,9 +1117,11 @@
 
         if (elHeaderTitle) elHeaderTitle.textContent = tourney.name;
         if (elHeaderSub) {
-            elHeaderSub.textContent = tourney.format === 'option1' 
-                ? 'Lag-serie (7 omgångar)' 
-                : 'Bana-rotation';
+            if (tourney.format === 'classic7') {
+                elHeaderSub.textContent = 'Klassisk Americano (7 omgångar)';
+            } else {
+                elHeaderSub.textContent = 'Lag-serie 21 (7 omgångar × 3 matcher)';
+            }
         }
 
         renderUserStatus();
@@ -1204,17 +1316,66 @@
 
         // Uppdatera omgångspiller
         document.querySelectorAll('.round-pill').forEach((pill, idx) => {
-            pill.classList.toggle('active', idx === appState.currentRoundIndex);
+            const isRoundActive = (idx === appState.currentRoundIndex);
+            pill.classList.toggle('active', isRoundActive);
+            const r = tourney.rounds[idx];
+            if (r) {
+                const allM = getAllMatchesInRound(r);
+                const isRoundDone = allM.length > 0 && allM.every(m => m.completed);
+                pill.classList.toggle('completed', isRoundDone);
+            }
         });
 
         const round = tourney.rounds[appState.currentRoundIndex];
-        if (!round || !round.matches) return;
+        if (!round) return;
+
+        const subContainer = document.getElementById('submatchPickerContainer');
+        const partnerBanner = document.getElementById('roundPartnerBanner');
+        const partnerText = document.getElementById('roundPartnerText');
+
+        // Hantera delmatcher (Lag-serie 21)
+        if (round.subMatches && round.subMatches.length > 0) {
+            if (subContainer) subContainer.style.display = 'block';
+
+            document.querySelectorAll('.submatch-pill').forEach(pill => {
+                const subIdx = parseInt(pill.dataset.sub, 10);
+                const isActive = (subIdx === appState.currentSubMatchIndex);
+                pill.classList.toggle('active', isActive);
+
+                const sm = round.subMatches[subIdx];
+                const isSubDone = sm && sm.matches && sm.matches.length > 0 && sm.matches.every(m => m.completed);
+                pill.classList.toggle('completed', isSubDone);
+                pill.textContent = isSubDone ? `Match ${subIdx + 1} ✓` : `Match ${subIdx + 1}`;
+            });
+
+            // Visa partner-banner för inloggad spelare
+            const currentUserId = appState.currentUser ? appState.currentUser.id : null;
+            const currentUserName = appState.currentUser ? appState.currentUser.name : null;
+            const partner = (currentUserId || currentUserName) ? getRoundPartner(round, currentUserId, currentUserName) : null;
+
+            if (partner && partnerBanner && partnerText) {
+                partnerBanner.style.display = 'flex';
+                partnerText.innerHTML = `Din partner i omgång ${appState.currentRoundIndex + 1} (alla 3 matcher): <strong>${escapeHtml(partner.name)}</strong>`;
+            } else if (partnerBanner) {
+                partnerBanner.style.display = 'none';
+            }
+        } else {
+            // Klassisk Americano utan delmatcher
+            if (subContainer) subContainer.style.display = 'none';
+            if (partnerBanner) partnerBanner.style.display = 'none';
+        }
 
         const currentUserId = appState.currentUser ? appState.currentUser.id : null;
         const currentUserName = appState.currentUser ? (appState.currentUser.name || '').toLowerCase() : '';
 
-        // Rendera Bana 1 och Bana 2
-        round.matches.forEach((m, cIdx) => {
+        // Rendera Bana 1 och Bana 2 för aktiv delmatch
+        const courtMatches = [
+            getActiveMatchForCourt(round, 0),
+            getActiveMatchForCourt(round, 1)
+        ];
+
+        courtMatches.forEach((m, cIdx) => {
+            if (!m) return;
             const courtNum = cIdx + 1;
             const card = document.getElementById(`courtCard${courtNum}`);
             const statusEl = document.getElementById(`courtStatus${courtNum}`);
@@ -1243,9 +1404,9 @@
 
             // Formatera lagnamn och markera (Du)
             const formatTeam = (team) => {
-                return team.map(p => {
+                return (team || []).map(p => {
                     const isMe = (currentUserId && p.id === currentUserId) || 
-                                 (currentUserName && p.name.toLowerCase() === currentUserName);
+                                 (currentUserName && p.name && p.name.toLowerCase() === currentUserName);
                     return isMe ? `${p.name} (Du)` : p.name;
                 }).join(' & ');
             };
@@ -1516,6 +1677,8 @@
                     `;
                     item.querySelector('.select-btn').addEventListener('click', () => {
                         appState.activeTournamentId = t.id;
+                        appState.currentRoundIndex = 0;
+                        appState.currentSubMatchIndex = 0;
                         saveState();
                         initCloudSync();
                         renderApp();
@@ -1609,6 +1772,17 @@
         document.querySelectorAll('.round-pill').forEach(pill => {
             pill.addEventListener('click', () => {
                 appState.currentRoundIndex = parseInt(pill.dataset.round, 10);
+                appState.currentSubMatchIndex = 0; // Återställ alltid till match 1 vid ny omgång
+                const tourney = getActiveTournament();
+                if (tourney) renderMatchesView(tourney);
+                playClick();
+            });
+        });
+
+        // Delmatchväljare (Match 1, Match 2, Match 3 i Lag-serie 21)
+        document.querySelectorAll('.submatch-pill').forEach(pill => {
+            pill.addEventListener('click', () => {
+                appState.currentSubMatchIndex = parseInt(pill.dataset.sub, 10) || 0;
                 const tourney = getActiveTournament();
                 if (tourney) renderMatchesView(tourney);
                 playClick();

@@ -18,7 +18,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
-    <link rel="stylesheet" href="style.css?v=2.3">
+    <link rel="stylesheet" href="style.css?v=2.4">
 </head>
 <body>
 
@@ -123,6 +123,21 @@
                         <button type="button" class="round-pill" data-round="5">6</button>
                         <button type="button" class="round-pill" data-round="6">7</button>
                     </div>
+                </div>
+
+                <!-- Underväljare för delmatcher (Match 1, 2, 3 i omgången) -->
+                <div class="submatch-picker-container" id="submatchPickerContainer" style="display: none;">
+                    <div class="submatch-picker" id="submatchPicker">
+                        <button type="button" class="submatch-pill active" data-sub="0">Match 1</button>
+                        <button type="button" class="submatch-pill" data-sub="1">Match 2</button>
+                        <button type="button" class="submatch-pill" data-sub="2">Match 3</button>
+                    </div>
+                </div>
+
+                <!-- Partner-banner för inloggad spelare -->
+                <div class="round-partner-banner" id="roundPartnerBanner" style="display: none;">
+                    <span class="partner-icon">🤝</span>
+                    <span class="partner-text" id="roundPartnerText"></span>
                 </div>
 
                 <!-- Notis om turneringen inte är lottad än -->
@@ -392,8 +407,8 @@
                 <div class="form-group">
                     <label class="form-label" for="newTourneyFormat">Format</label>
                     <select class="form-select" id="newTourneyFormat">
-                        <option value="option1" selected>Lag-serie (7 omgångar, alla möter alla)</option>
-                        <option value="option2">Bana-rotation (4 spelare per bana)</option>
+                        <option value="option1" selected>Lag-serie 21 (7 omgångar × 3 matcher = 21 matcher)</option>
+                        <option value="classic7">Klassisk Americano (7 matcher, 1 per omgång)</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -562,6 +577,6 @@
     <!-- 5. TOAST CONTAINER (Ångra, kopieringsnotiser) -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <script src="app.js?v=2.3"></script>
+    <script src="app.js?v=2.4"></script>
 </body>
 </html>
