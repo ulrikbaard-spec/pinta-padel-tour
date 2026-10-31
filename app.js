@@ -410,12 +410,14 @@
         const isExplicitlyLoggedOut = sessionStorage.getItem(LOGOUT_FLAG_KEY) === 'true';
 
         if (adminKeyParam && active && !isExplicitlyLoggedOut) {
-            if (adminKeyParam.toLowerCase() === 'ulrik' || (active.adminKey && active.adminKey === adminKeyParam)) {
+            const isMasterParam = adminKeyParam.toLowerCase() === 'ulrik' || adminKeyParam.toLowerCase() === 'eje';
+            if (isMasterParam || (active.adminKey && active.adminKey === adminKeyParam)) {
                 active.adminKey = adminKeyParam;
                 saveAdminKeyForTourney(active.id, adminKeyParam);
+                const adminName = adminKeyParam.toLowerCase() === 'eje' ? 'Eje' : (adminKeyParam.toLowerCase() === 'ulrik' ? 'Ulrik' : ((active.organizer && active.organizer.name) ? active.organizer.name : 'Arrangör'));
                 appState.currentUser = {
                     id: (active.organizer && active.organizer.id) ? active.organizer.id : 'org_' + active.id,
-                    name: (active.organizer && active.organizer.name) ? active.organizer.name : 'Arrangör',
+                    name: adminName,
                     role: 'admin',
                     tourneyKey: adminKeyParam
                 };
@@ -2199,14 +2201,17 @@
                 return;
             }
 
-            const isMaster = code.toLowerCase() === 'ulrik';
+            const isUlrik = code.toLowerCase() === 'ulrik';
+            const isEje = code.toLowerCase() === 'eje';
+            const isMaster = isUlrik || isEje;
             const matchesCode = tourney.adminCode && code.toUpperCase() === tourney.adminCode.toUpperCase();
             const matchesKey = tourney.adminKey && code === tourney.adminKey;
 
             if (isMaster || matchesCode || matchesKey) {
+                const adminName = isEje ? 'Eje' : (isUlrik ? 'Ulrik' : ((tourney.organizer && tourney.organizer.name) ? tourney.organizer.name : 'Arrangör'));
                 appState.currentUser = {
                     id: (tourney.organizer && tourney.organizer.id) ? tourney.organizer.id : 'org_' + tourney.id,
-                    name: (tourney.organizer && tourney.organizer.name) ? tourney.organizer.name : 'Arrangör',
+                    name: adminName,
                     role: 'admin',
                     tourneyKey: tourney.adminKey
                 };
