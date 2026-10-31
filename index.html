@@ -30,7 +30,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
-    <link rel="stylesheet" href="style.css?v=2.9">
+    <link rel="stylesheet" href="style.css?v=3.0">
 </head>
 <body>
 
@@ -167,6 +167,7 @@
                         <div class="court-header">
                             <div class="court-title-wrap">
                                 <span class="court-title">BANA 1</span>
+                                <span class="court-group-label" id="courtGroupLabel1" style="display: none;"></span>
                                 <span class="court-user-tag" id="courtUserTag1" style="display: none;">⭐ DIN MATCH</span>
                             </div>
                             <span class="court-match-status" id="courtStatus1">Pågående</span>
@@ -203,6 +204,7 @@
                         <div class="court-header">
                             <div class="court-title-wrap">
                                 <span class="court-title">BANA 2</span>
+                                <span class="court-group-label" id="courtGroupLabel2" style="display: none;"></span>
                                 <span class="court-user-tag" id="courtUserTag2" style="display: none;">⭐ DIN MATCH</span>
                             </div>
                             <span class="court-match-status" id="courtStatus2">Pågående</span>
@@ -453,8 +455,9 @@
                 <div class="form-group">
                     <label class="form-label" for="newTourneyFormat">Format</label>
                     <select class="form-select" id="newTourneyFormat">
-                        <option value="option1" selected>Lag-serie 21 (7 omgångar × 3 matcher = 21 matcher)</option>
-                        <option value="classic7">Klassisk Americano (7 matcher, 1 per omgång)</option>
+                        <option value="lagserie21" selected>Lag-serie 21 (Fast partner per omgång, möter alla par)</option>
+                        <option value="court21">Bana-rotation 21 (Mini-Americano: 4 på bana 1, 4 på bana 2)</option>
+                        <option value="classic7">Klassisk Americano (7 omgångar × 1 match)</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -683,6 +686,6 @@
     <!-- 5. TOAST CONTAINER (Ångra, kopieringsnotiser) -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <script src="app.js?v=2.9"></script>
+    <script src="app.js?v=3.0"></script>
 </body>
 </html>
