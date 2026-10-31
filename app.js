@@ -478,11 +478,11 @@
         const url = getShareableUrl(tourney, false);
         const tourneyName = (tourney.name || 'Padelturnering').trim();
         const organizerName = getOrganizerName(tourney);
-        let formatName = 'Lag-serie 21 (7 omgångar × 3 matcher = 21 matcher)';
+        let formatName = 'Duo 21 – (Fast lag per omgång, möt alla)';
         if (tourney.format === 'classic7') {
-            formatName = 'Klassisk Americano (7 omgångar)';
+            formatName = 'Klassisk 7 – (Standard Americano)';
         } else if (tourney.format === 'court21') {
-            formatName = 'Bana-rotation 21 (7 omgångar × 3 matcher = 21 matcher)';
+            formatName = 'Quattro 21 – (4 på banan, rotera partner)';
         }
 
         return (
@@ -503,11 +503,11 @@
 
         const tourneyName = (tourney.name || 'Padelturnering').trim();
         const organizerName = getOrganizerName(tourney);
-        let formatName = 'Lag-serie 21 (7 omgångar × 3 matcher)';
+        let formatName = 'Duo 21 – (Fast lag per omgång, möt alla)';
         if (tourney.format === 'classic7') {
-            formatName = 'Klassisk Americano (7 omgångar)';
+            formatName = 'Klassisk 7 – (Standard Americano)';
         } else if (tourney.format === 'court21') {
-            formatName = 'Bana-rotation 21 (7 omgångar × 3 matcher)';
+            formatName = 'Quattro 21 – (4 på banan, rotera partner)';
         }
 
         const now = new Date();
@@ -1429,11 +1429,11 @@
         if (elHeaderTitle) elHeaderTitle.textContent = tourney.name;
         if (elHeaderSub) {
             if (tourney.format === 'classic7') {
-                elHeaderSub.textContent = 'Klassisk Americano (7 omgångar)';
+                elHeaderSub.textContent = 'Klassisk 7 – (Standard Americano)';
             } else if (tourney.format === 'court21') {
-                elHeaderSub.textContent = 'Bana-rotation 21 (7 omgångar × 3 matcher)';
+                elHeaderSub.textContent = 'Quattro 21 – (4 på banan, rotera partner)';
             } else {
-                elHeaderSub.textContent = 'Lag-serie 21 (7 omgångar × 3 matcher)';
+                elHeaderSub.textContent = 'Duo 21 – (Fast lag per omgång, möt alla)';
             }
         }
 
