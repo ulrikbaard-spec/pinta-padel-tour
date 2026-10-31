@@ -304,11 +304,15 @@
                         const idx = appState.tournaments.findIndex(t => t.id === cloudTourney.id);
                         const localTourney = idx >= 0 ? appState.tournaments[idx] : null;
 
+                        const isPending = doc.metadata && doc.metadata.hasPendingWrites;
+                        const cloudPlayerCount = (cloudTourney.players || []).length;
+                        const localPlayerCount = (localTourney && localTourney.players) ? localTourney.players.length : 0;
                         const cloudUpdated = cloudTourney.updatedAt || 0;
                         const localUpdated = (localTourney && localTourney.updatedAt) || 0;
 
-                        // Uppdatera endast om Firestore har nyare data eller lokal data saknas
-                        if (!localTourney || cloudUpdated > localUpdated) {
+                        // Uppdatera alltid om snapshotet är bekräftat från servern,
+                        // om molnet har fler/andra spelare, eller om molnets tidsstämpel är nyare/lika
+                        if (!isPending || cloudPlayerCount !== localPlayerCount || cloudUpdated >= localUpdated || !localTourney) {
                             if (idx >= 0) {
                                 appState.tournaments[idx] = cloudTourney;
                             } else {
@@ -316,7 +320,6 @@
                             }
                             saveState(true);
                             renderApp();
-                            playTone(720, 0.05);
                         }
                     }
                 } else {
@@ -2322,6 +2325,23 @@
         // Standardvy: Spelare om turnering finns, annars Startskärm
         if (getActiveTournament()) {
             switchView('viewPlayers');
+        }
+
+        // Hämta färsk version direkt från molnet om turnering är aktiv
+        if (appState.activeTournamentId && db) {
+            db.collection('tournaments').doc(appState.activeTournamentId).get().then(doc => {
+                if (doc.exists) {
+                    const cloudTourney = doc.data();
+                    const idx = appState.tournaments.findIndex(t => t.id === appState.activeTournamentId);
+                    if (idx >= 0) {
+                        appState.tournaments[idx] = cloudTourney;
+                    } else {
+                        appState.tournaments.push(cloudTourney);
+                    }
+                    saveState(true);
+                    renderApp();
+                }
+            }).catch(e => console.warn('Kunde inte läsa aktiv turnering vid start:', e));
         }
 
         setTimeout(checkAutoInvitePrompt, 350);
