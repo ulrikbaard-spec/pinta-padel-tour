@@ -30,7 +30,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
-    <link rel="stylesheet" href="style.css?v=3.1">
+    <link rel="stylesheet" href="style.css?v=3.2">
 </head>
 <body>
 
@@ -531,6 +531,34 @@
                     </div>
                 </form>
             </div>
+
+            <!-- Steg 3: När turneringen redan är full -->
+            <div id="inviteStepFull" style="display: none;">
+                <div class="modal-header">
+                    <h3 class="modal-title">🎾 Turneringen är full</h3>
+                    <button type="button" class="btn-close-modal" id="btnCloseInviteStepFull">✕</button>
+                </div>
+                <div class="text-center" style="margin-bottom: 20px;">
+                    <div style="font-size: 38px; margin-bottom: 8px;">👀</div>
+                    <h2 style="font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: 6px;" id="inviteFullTourneyNameText">Turnering</h2>
+                    <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 12px;">
+                        Alla 8 spelarplatser är tyvärr redan fyllda.
+                    </p>
+                    <div style="font-size: 13px; font-weight: 600; color: var(--primary); background: rgba(0, 230, 118, 0.1); border: 1px solid rgba(0, 230, 118, 0.25); padding: 10px 16px; border-radius: var(--radius-md); display: inline-block; line-height: 1.4;">
+                        Du är varmt välkommen att följa turneringen, spelschemat och liveresultaten som åskådare! 🍿
+                    </div>
+                </div>
+                <div class="modal-actions" style="display: flex; flex-direction: column; gap: 8px;">
+                    <button type="button" class="btn btn-primary btn-block btn-lg" id="btnInviteWatchSpectator">
+                        👀 Titta på som åskådare
+                    </button>
+                </div>
+                <div class="text-center" style="margin-top: 14px;">
+                    <button type="button" class="btn-link" id="btnInviteFullOpenLogin" style="font-size: 12px; color: var(--text-muted); background: none; border: none; cursor: pointer; text-decoration: underline;">
+                        Är du redan anmäld? Logga in med din PIN-kod
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -686,6 +714,6 @@
     <!-- 5. TOAST CONTAINER (Ångra, kopieringsnotiser) -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <script src="app.js?v=3.1"></script>
+    <script src="app.js?v=3.2"></script>
 </body>
 </html>

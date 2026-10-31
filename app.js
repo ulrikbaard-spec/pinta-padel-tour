@@ -594,20 +594,25 @@
 
     /**
      * Visar inbjudningsdialogen för en deltagare som klickat på inbjudningslänken
+     * @param {Object} tourney - Turneringsobjektet
+     * @param {boolean} isFull - Om turneringen är fullbokad eller redan lottad
      */
-    function showInvitePromptModal(tourney) {
+    function showInvitePromptModal(tourney, isFull = false) {
         if (!tourney) return;
         const nameText = document.getElementById('inviteTourneyNameText');
         const orgText = document.getElementById('inviteOrganizerNameText');
         const slotsNotice = document.getElementById('inviteSlotsNotice');
         const askStep = document.getElementById('inviteStepAsk');
         const nameStep = document.getElementById('inviteStepName');
+        const fullStep = document.getElementById('inviteStepFull');
+        const fullTourneyName = document.getElementById('inviteFullTourneyNameText');
         const inputName = document.getElementById('inviteJoinPlayerName');
 
         const orgName = getOrganizerName(tourney);
         const freeSlots = Math.max(0, 8 - (tourney.players ? tourney.players.length : 0));
 
         if (nameText) nameText.textContent = tourney.name || 'Padelturnering';
+        if (fullTourneyName) fullTourneyName.textContent = tourney.name || 'Padelturnering';
         if (orgText) orgText.textContent = orgName;
         if (slotsNotice) {
             slotsNotice.textContent = freeSlots === 1
@@ -615,9 +620,16 @@
                 : `${freeSlots} lediga platser kvar`;
         }
 
-        if (askStep) askStep.style.display = 'block';
-        if (nameStep) nameStep.style.display = 'none';
-        if (inputName) inputName.value = '';
+        if (isFull) {
+            if (askStep) askStep.style.display = 'none';
+            if (nameStep) nameStep.style.display = 'none';
+            if (fullStep) fullStep.style.display = 'block';
+        } else {
+            if (askStep) askStep.style.display = 'block';
+            if (nameStep) nameStep.style.display = 'none';
+            if (fullStep) fullStep.style.display = 'none';
+            if (inputName) inputName.value = '';
+        }
 
         openModal('modalInviteJoin');
     }
@@ -646,13 +658,17 @@
             if (isAlreadyIn) return;
         }
 
-        // Om turneringen redan är lottad eller full
-        if (tourney.isDrawn || (tourney.players && tourney.players.length >= 8)) return;
-
-        // Om användaren redan avböjt i denna session
+        // Om användaren redan avböjt eller bekräftat åskådarläge i denna session
         if (sessionStorage.getItem(`pinta_declined_invite_${tourney.id}`) === 'true') return;
 
-        showInvitePromptModal(tourney);
+        // Om turneringen redan är lottad eller full med 8 spelare -> visa att turneringen är full och välkomna som åskådare
+        const isFull = tourney.isDrawn || (tourney.players && tourney.players.length >= 8);
+        if (isFull) {
+            showInvitePromptModal(tourney, true);
+            return;
+        }
+
+        showInvitePromptModal(tourney, false);
     }
 
     // =========================================================================
@@ -2592,6 +2608,40 @@
             });
         }
 
+        // Knappar för när turneringen redan är full
+        const btnCloseInviteStepFull = document.getElementById('btnCloseInviteStepFull');
+        if (btnCloseInviteStepFull) {
+            btnCloseInviteStepFull.addEventListener('click', () => {
+                const tourney = getActiveTournament();
+                if (tourney) sessionStorage.setItem(`pinta_declined_invite_${tourney.id}`, 'true');
+                closeModal('modalInviteJoin');
+            });
+        }
+
+        const btnInviteWatchSpectator = document.getElementById('btnInviteWatchSpectator');
+        if (btnInviteWatchSpectator) {
+            btnInviteWatchSpectator.addEventListener('click', () => {
+                const tourney = getActiveTournament();
+                if (tourney) sessionStorage.setItem(`pinta_declined_invite_${tourney.id}`, 'true');
+                closeModal('modalInviteJoin');
+                playClick();
+                if (tourney && tourney.isDrawn) {
+                    switchView('viewMatches');
+                } else {
+                    switchView('viewPlayers');
+                }
+                showToast('👀 Välkommen! Du följer turneringen som åskådare.');
+            });
+        }
+
+        const btnInviteFullOpenLogin = document.getElementById('btnInviteFullOpenLogin');
+        if (btnInviteFullOpenLogin) {
+            btnInviteFullOpenLogin.addEventListener('click', () => {
+                closeModal('modalInviteJoin');
+                openModal('modalAuth');
+            });
+        }
+
         const formInviteJoinName = document.getElementById('formInviteJoinName');
         if (formInviteJoinName) {
             formInviteJoinName.addEventListener('submit', (e) => {
@@ -2636,6 +2686,7 @@
                     }
                     saveState(true);
                     renderApp();
+                    checkAutoInvitePrompt();
                 }
             }).catch(e => console.warn('Kunde inte läsa aktiv turnering vid start:', e));
         }
