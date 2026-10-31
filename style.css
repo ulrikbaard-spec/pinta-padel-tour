@@ -895,6 +895,35 @@ html, body {
 .text-center { text-align: center; }
 .text-right { text-align: right; }
 
+/* Resultatrapport & Backup Box */
+.report-export-box {
+    margin-top: 14px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.report-export-header {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.report-export-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.report-export-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
 /* ==========================================================================
    7. FLIK 4: MENY (ADMINISTRATION & INSTÄLLNINGAR)
    ========================================================================== */

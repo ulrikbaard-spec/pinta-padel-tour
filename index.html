@@ -30,7 +30,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
-    <link rel="stylesheet" href="style.css?v=2.8">
+    <link rel="stylesheet" href="style.css?v=2.9">
 </head>
 <body>
 
@@ -261,6 +261,22 @@
                         </table>
                     </div>
                 </div>
+
+                <!-- Resultatrapport & Backup för WhatsApp / Anteckningar -->
+                <div class="report-export-box">
+                    <div class="report-export-header">
+                        <span class="report-export-title">📋 Resultatrapport & Backup</span>
+                        <span class="report-export-sub">Kopiera eller skicka aktuell ställning och alla matcher till WhatsApp</span>
+                    </div>
+                    <div class="menu-actions-row">
+                        <button type="button" class="btn btn-secondary btn-sm" id="btnCopyReportTable">
+                            📋 Kopiera rapport
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm btn-whatsapp" id="btnWhatsappReportTable">
+                            📲 WhatsApp
+                        </button>
+                    </div>
+                </div>
             </section>
 
             <!-- FLIK 4: MENY (ADMINISTRATION & INSTÄLLNINGAR) -->
@@ -299,6 +315,24 @@
                             <div class="menu-actions-row">
                                 <button type="button" class="btn btn-secondary btn-sm" id="btnMenuCopyLink">Kopiera inbjudan</button>
                                 <button type="button" class="btn btn-secondary btn-sm btn-whatsapp" id="btnMenuWhatsapp">WhatsApp</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sektion: Resultatrapport & Backup -->
+                    <div class="menu-section">
+                        <span class="menu-section-title">Resultatrapport & Backup</span>
+                        <div class="menu-item-card">
+                            <div class="menu-item-content">
+                                <span class="menu-item-icon">📊</span>
+                                <div>
+                                    <strong>Delsummering & Matchresultat</strong>
+                                    <span class="menu-item-sub">Kopiera eller dela alla spelade matcher och ställning till WhatsApp som backup</span>
+                                </div>
+                            </div>
+                            <div class="menu-actions-row">
+                                <button type="button" class="btn btn-secondary btn-sm" id="btnMenuCopyReport">📋 Kopiera rapport</button>
+                                <button type="button" class="btn btn-secondary btn-sm btn-whatsapp" id="btnMenuWhatsappReport">📲 WhatsApp</button>
                             </div>
                         </div>
                     </div>
@@ -649,6 +683,6 @@
     <!-- 5. TOAST CONTAINER (Ångra, kopieringsnotiser) -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <script src="app.js?v=2.8"></script>
+    <script src="app.js?v=2.9"></script>
 </body>
 </html>

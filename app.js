@@ -480,6 +480,100 @@
     }
 
     /**
+     * Skapar en komplett text/WhatsApp-resultatrapport som kan delas eller sparas som backup
+     */
+    function getTournamentSummaryReport(tourney) {
+        if (!tourney) return '';
+
+        const tourneyName = (tourney.name || 'Padelturnering').trim();
+        const organizerName = getOrganizerName(tourney);
+        const formatName = tourney.format === 'classic7'
+            ? 'Klassisk Americano (7 omgångar)'
+            : 'Lag-serie 21 (7 omgångar × 3 matcher)';
+
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+        const timeStr = now.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+        const timeStampText = `${dateStr} kl ${timeStr}`;
+
+        // Beräkna totalt antal matcher och spelade matcher
+        let totalMatches = 0;
+        let completedMatches = 0;
+        const roundsOutput = [];
+
+        (tourney.rounds || []).forEach((r, rIdx) => {
+            const allM = getAllMatchesInRound(r);
+            totalMatches += allM.length;
+            const completedInRound = allM.filter(m => m.completed);
+            completedMatches += completedInRound.length;
+
+            if (completedInRound.length > 0) {
+                const matchLines = [];
+
+                if (r.subMatches && r.subMatches.length > 0) {
+                    r.subMatches.forEach((sm, smIdx) => {
+                        (sm.matches || []).forEach(m => {
+                            if (m.completed) {
+                                const t1 = (m.team1 || []).map(p => p.name).join(' & ');
+                                const t2 = (m.team2 || []).map(p => p.name).join(' & ');
+                                matchLines.push(`• M${smIdx + 1} (Bana ${m.court}): ${t1} vs ${t2} (${m.score1} - ${m.score2})`);
+                            }
+                        });
+                    });
+                } else {
+                    (r.matches || []).forEach(m => {
+                        if (m.completed) {
+                            const t1 = (m.team1 || []).map(p => p.name).join(' & ');
+                            const t2 = (m.team2 || []).map(p => p.name).join(' & ');
+                            matchLines.push(`• Bana ${m.court}: ${t1} vs ${t2} (${m.score1} - ${m.score2})`);
+                        }
+                    });
+                }
+
+                if (matchLines.length > 0) {
+                    roundsOutput.push(`*Omgång ${rIdx + 1}:*\n${matchLines.join('\n')}`);
+                }
+            }
+        });
+
+        // Tabell
+        const leaderboard = calculateLeaderboard(tourney);
+        const tableLines = [];
+        leaderboard.forEach((item, idx) => {
+            const medal = idx === 0 ? '🥇 ' : (idx === 1 ? '🥈 ' : (idx === 2 ? '🥉 ' : `${idx + 1}. `));
+            const diffStr = item.diff > 0 ? `+${item.diff}` : `${item.diff}`;
+            tableLines.push(`${medal}${item.name}: *${item.totalPoints}p* (${item.matchesPlayed} m, diff ${diffStr})`);
+        });
+
+        const statusLine = totalMatches > 0
+            ? `📊 *Status:* ${completedMatches} av ${totalMatches} matcher spelade`
+            : `📊 *Status:* Inga matcher lottade ännu`;
+
+        const matchesSection = roundsOutput.length > 0
+            ? roundsOutput.join('\n\n')
+            : 'Inga matcher är färdigspelade ännu.';
+
+        const url = getShareableUrl(tourney, false);
+
+        return (
+            `🎾 *PINTA PADEL TOUR – RESULTATRAPPORT*\n\n` +
+            `🏆 *Turnering:* ${tourneyName}\n` +
+            `👤 *Arrangör:* ${organizerName}\n` +
+            `📋 *Format:* ${formatName}\n` +
+            `🕒 *Tid:* ${timeStampText}\n` +
+            `${statusLine}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `🏆 *AKTUELL TABELL*\n` +
+            `${tableLines.join('\n')}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `🎾 *SPELADE MATCHER*\n` +
+            `${matchesSection}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `👉 *Följ live här:*\n${url}`
+        );
+    }
+
+    /**
      * Visar inbjudningsdialogen för en deltagare som klickat på inbjudningslänken
      */
     function showInvitePromptModal(tourney) {
@@ -1957,11 +2051,71 @@
             window.open(`https://wa.me/?text=${text}`, '_blank');
         };
 
+        function fallbackCopyText(text, successToastMsg) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+                document.execCommand('copy');
+                showToast(successToastMsg || '✓ Kopierat!');
+                playSuccess();
+            } catch (e) {
+                prompt('Kopiera texten här:', text);
+            }
+            document.body.removeChild(ta);
+        }
+
+        const copySummaryReportHandler = () => {
+            const active = getActiveTournament();
+            if (!active) {
+                showToast('Ingen aktiv turnering att exportera.');
+                return;
+            }
+            const message = getTournamentSummaryReport(active);
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(message).then(() => {
+                    showToast('📋 Resultatrapport kopierad till urklipp!');
+                    playSuccess();
+                }).catch(() => {
+                    fallbackCopyText(message, '📋 Resultatrapport kopierad!');
+                });
+            } else {
+                fallbackCopyText(message, '📋 Resultatrapport kopierad!');
+            }
+        };
+
+        const whatsappSummaryReportHandler = () => {
+            const active = getActiveTournament();
+            if (!active) {
+                showToast('Ingen aktiv turnering att dela.');
+                return;
+            }
+            const message = getTournamentSummaryReport(active);
+            const text = encodeURIComponent(message);
+            window.open(`https://wa.me/?text=${text}`, '_blank');
+        };
+
         document.getElementById('btnCopyInviteLink').addEventListener('click', copyInviteHandler);
         document.getElementById('btnMenuCopyLink').addEventListener('click', copyInviteHandler);
         document.getElementById('btnCopyAdminLink').addEventListener('click', copyAdminLinkHandler);
         document.getElementById('btnWhatsappInvite').addEventListener('click', whatsappInviteHandler);
         document.getElementById('btnMenuWhatsapp').addEventListener('click', whatsappInviteHandler);
+
+        // Resultatrapport-knappar (Tabellfliken och Menyn)
+        const btnCopyReportTable = document.getElementById('btnCopyReportTable');
+        if (btnCopyReportTable) btnCopyReportTable.addEventListener('click', copySummaryReportHandler);
+
+        const btnWhatsappReportTable = document.getElementById('btnWhatsappReportTable');
+        if (btnWhatsappReportTable) btnWhatsappReportTable.addEventListener('click', whatsappSummaryReportHandler);
+
+        const btnMenuCopyReport = document.getElementById('btnMenuCopyReport');
+        if (btnMenuCopyReport) btnMenuCopyReport.addEventListener('click', copySummaryReportHandler);
+
+        const btnMenuWhatsappReport = document.getElementById('btnMenuWhatsappReport');
+        if (btnMenuWhatsappReport) btnMenuWhatsappReport.addEventListener('click', whatsappSummaryReportHandler);
 
         // Lottningsknapp
         document.getElementById('btnDrawSchedule').addEventListener('click', () => {
