@@ -38,6 +38,7 @@
 
     let db = null;
     let firestoreUnsubscribe = null;
+    let firestoreTournamentsUnsubscribe = null;
     let broadcastChannel = null;
     let undoToastTimer = null;
     let audioCtx = null;
@@ -283,6 +284,128 @@
         }
     }
 
+    /**
+     * Realtidssynk för HELA turneringstabellen i Firestore.
+     * Gör så att nya turneringar och raderade turneringar uppdateras direkt i alla webbläsare.
+     */
+    function initTournamentsListSync() {
+        if (!db) return;
+        if (firestoreTournamentsUnsubscribe) {
+            firestoreTournamentsUnsubscribe();
+            firestoreTournamentsUnsubscribe = null;
+        }
+
+        try {
+            firestoreTournamentsUnsubscribe = db.collection('tournaments').onSnapshot((snapshot) => {
+                let hasChanges = false;
+                const cloudDocIds = new Set();
+
+                snapshot.docs.forEach((doc) => {
+                    const data = doc.data();
+                    const tourneyId = doc.id || data.id;
+                    if (!tourneyId) return;
+                    data.id = tourneyId;
+                    data.syncedToCloud = true;
+                    cloudDocIds.add(tourneyId);
+
+                    if (data.isDeleted) {
+                        // Turneringen är raderad i molnet
+                        const aIdx = appState.tournaments.findIndex(t => t.id === tourneyId);
+                        if (aIdx >= 0) {
+                            const [removed] = appState.tournaments.splice(aIdx, 1);
+                            removed.isDeleted = true;
+                            removed.deletedAt = data.deletedAt || new Date().toISOString();
+                            if (!appState.deletedTournaments.some(t => t.id === tourneyId)) {
+                                appState.deletedTournaments.unshift(removed);
+                            }
+                            hasChanges = true;
+                        } else {
+                            const dIdx = appState.deletedTournaments.findIndex(t => t.id === tourneyId);
+                            if (dIdx < 0) {
+                                appState.deletedTournaments.unshift(data);
+                                hasChanges = true;
+                            }
+                        }
+
+                        // Om den raderade turneringen råkade vara aktiv på denna enhet
+                        if (appState.activeTournamentId === tourneyId) {
+                            appState.activeTournamentId = null;
+                            if (appState.currentUser && appState.currentUser.role === 'player') {
+                                appState.currentUser = null;
+                                saveUser();
+                            }
+                            switchView('viewStartScreen');
+                            showToast(`Turneringen "${data.name || ''}" har raderats av arrangören.`);
+                            hasChanges = true;
+                        }
+                    } else {
+                        // Aktiv turnering i molnet
+                        // Om den låg i lokal papperskorg tidigare, flytta upp den
+                        const dIdx = appState.deletedTournaments.findIndex(t => t.id === tourneyId);
+                        if (dIdx >= 0) {
+                            appState.deletedTournaments.splice(dIdx, 1);
+                            hasChanges = true;
+                        }
+
+                        const aIdx = appState.tournaments.findIndex(t => t.id === tourneyId);
+                        if (aIdx >= 0) {
+                            const local = appState.tournaments[aIdx];
+                            const cloudUpdated = data.updatedAt || 0;
+                            const localUpdated = local.updatedAt || 0;
+                            const cloudPlayers = (data.players || []).length;
+                            const localPlayers = (local.players || []).length;
+
+                            if (cloudUpdated >= localUpdated || cloudPlayers !== localPlayers || (!local.isDrawn && data.isDrawn)) {
+                                appState.tournaments[aIdx] = data;
+                                hasChanges = true;
+                            }
+                        } else {
+                            // Helt ny turnering skapad i en annan webbläsare eller mobil!
+                            appState.tournaments.unshift(data);
+                            hasChanges = true;
+                        }
+                    }
+                });
+
+                // Rensa lokala turneringar som har raderats permanent från molnet
+                for (let i = appState.tournaments.length - 1; i >= 0; i--) {
+                    const local = appState.tournaments[i];
+                    if (local.syncedToCloud && !cloudDocIds.has(local.id)) {
+                        appState.tournaments.splice(i, 1);
+                        hasChanges = true;
+                        if (appState.activeTournamentId === local.id) {
+                            appState.activeTournamentId = null;
+                            if (appState.currentUser && appState.currentUser.role === 'player') {
+                                appState.currentUser = null;
+                                saveUser();
+                            }
+                            switchView('viewStartScreen');
+                            showToast('Turneringen finns inte längre kvar i molnet.');
+                        }
+                    }
+                }
+
+                for (let i = appState.deletedTournaments.length - 1; i >= 0; i--) {
+                    const localDel = appState.deletedTournaments[i];
+                    if (localDel.syncedToCloud && !cloudDocIds.has(localDel.id)) {
+                        appState.deletedTournaments.splice(i, 1);
+                        hasChanges = true;
+                    }
+                }
+
+                if (hasChanges) {
+                    saveState(true);
+                    renderApp();
+                    renderArchiveModal();
+                }
+            }, (error) => {
+                console.warn('Firestore tournaments samlingslyssnare fel:', error);
+            });
+        } catch (e) {
+            console.error('Kunde inte starta samlingssynk:', e);
+        }
+    }
+
     function initCloudSync() {
         const active = getActiveTournament();
         const dot = document.getElementById('syncDot');
@@ -313,7 +436,36 @@
 
                 if (doc.exists) {
                     const cloudTourney = doc.data();
-                    if (cloudTourney && cloudTourney.id === appState.activeTournamentId) {
+                    if (!cloudTourney) return;
+
+                    // Om turneringen har raderats i molnet:
+                    if (cloudTourney.isDeleted) {
+                        const remIdx = appState.tournaments.findIndex(t => t.id === cloudTourney.id);
+                        if (remIdx >= 0) {
+                            const [del] = appState.tournaments.splice(remIdx, 1);
+                            del.isDeleted = true;
+                            del.deletedAt = cloudTourney.deletedAt || new Date().toISOString();
+                            if (!appState.deletedTournaments.some(t => t.id === cloudTourney.id)) {
+                                appState.deletedTournaments.unshift(del);
+                            }
+                        }
+                        if (appState.activeTournamentId === cloudTourney.id) {
+                            appState.activeTournamentId = null;
+                            if (appState.currentUser && appState.currentUser.role === 'player') {
+                                appState.currentUser = null;
+                                saveUser();
+                            }
+                            saveState(true);
+                            renderApp();
+                            showToast(`Turneringen "${cloudTourney.name || ''}" har raderats av arrangören.`);
+                        }
+                        return;
+                    }
+
+                    if (cloudTourney.id === appState.activeTournamentId) {
+                        active.syncedToCloud = true;
+                        cloudTourney.syncedToCloud = true;
+
                         const idx = appState.tournaments.findIndex(t => t.id === cloudTourney.id);
                         const localTourney = idx >= 0 ? appState.tournaments[idx] : null;
 
@@ -336,8 +488,24 @@
                         }
                     }
                 } else {
-                    // Turneringen finns inte i Firestore än -> ladda upp lokal version
-                    syncToCloud();
+                    // Turneringen finns inte i Firestore
+                    if (active && active.syncedToCloud) {
+                        // Den har raderats permanent i molnet -> ta bort lokalt och återuppliva INTE!
+                        console.warn(`Turneringen ${active.id} har raderats från molnet.`);
+                        const remIdx = appState.tournaments.findIndex(t => t.id === active.id);
+                        if (remIdx >= 0) appState.tournaments.splice(remIdx, 1);
+                        appState.activeTournamentId = null;
+                        if (appState.currentUser && appState.currentUser.role === 'player') {
+                            appState.currentUser = null;
+                            saveUser();
+                        }
+                        saveState(true);
+                        renderApp();
+                        showToast('Turneringen finns inte längre kvar.');
+                    } else if (active && !active.syncedToCloud) {
+                        // Nyskapad turnering som ännu inte skrivits
+                        syncToCloud();
+                    }
                 }
             }, (error) => {
                 console.warn('Firestore snapshot fel:', error);
@@ -356,8 +524,10 @@
     function syncToCloud() {
         const active = getActiveTournament();
         if (!active || !db) return;
+        if (active.isDeleted) return;
         try {
             active.updatedAt = Date.now();
+            active.syncedToCloud = true;
             const docRef = db.collection('tournaments').doc(active.id);
             const plainTourney = JSON.parse(JSON.stringify(active));
             docRef.set(plainTourney, { merge: true }).catch((err) => {
@@ -408,6 +578,21 @@
                 db.collection('tournaments').doc(tourneyId).get().then(doc => {
                     if (doc.exists) {
                         const cloudData = doc.data();
+                        if (cloudData.isDeleted) {
+                            showToast('Denna turnering har raderats av arrangören.');
+                            const idx = appState.tournaments.findIndex(t => t.id === tourneyId);
+                            if (idx >= 0) {
+                                const [del] = appState.tournaments.splice(idx, 1);
+                                del.isDeleted = true;
+                                if (!appState.deletedTournaments.some(t => t.id === tourneyId)) {
+                                    appState.deletedTournaments.unshift(del);
+                                }
+                            }
+                            appState.activeTournamentId = null;
+                            saveState(true);
+                            renderApp();
+                            return;
+                        }
                         const idx = appState.tournaments.findIndex(t => t.id === tourneyId);
                         if (idx >= 0) {
                             appState.tournaments[idx] = cloudData;
@@ -676,7 +861,7 @@
     // =========================================================================
 
     function getActiveTournament() {
-        return appState.tournaments.find(t => t.id === appState.activeTournamentId) || null;
+        return appState.tournaments.find(t => t.id === appState.activeTournamentId && !t.isDeleted) || null;
     }
 
     function isOrganizer() {
@@ -831,6 +1016,9 @@
             createdAt: new Date().toISOString(),
             status: 'lobby',
             isDrawn: false,
+            isDeleted: false,
+            syncedToCloud: true,
+            updatedAt: Date.now(),
             adminKey: adminKey,
             adminCode: adminCode,
             organizer: {
@@ -1250,10 +1438,13 @@
                 appState.deletedTournaments.splice(pIdx, 1);
                 saveState(true);
                 if (db) {
-                    db.collection('tournaments').doc(tourneyId).delete().catch(() => {});
+                    db.collection('tournaments').doc(tourneyId).delete().catch((err) => {
+                        console.warn('Kunde inte radera permanent från Firestore:', err);
+                    });
                 }
                 renderArchiveModal();
                 playClick();
+                showToast('Turneringen raderades permanent.');
             }
             return;
         }
@@ -1262,16 +1453,20 @@
         if (idx < 0) return;
 
         const tourney = appState.tournaments.splice(idx, 1)[0];
+        tourney.isDeleted = true;
         tourney.deletedAt = new Date().toISOString();
-        appState.deletedTournaments.unshift(tourney);
+        tourney.updatedAt = Date.now();
+        if (!appState.deletedTournaments.some(t => t.id === tourney.id)) {
+            appState.deletedTournaments.unshift(tourney);
+        }
 
-        // Nollställ allt till startskärm
-        appState.activeTournamentId = null;
-
-        // Om användaren var inloggad som spelare i turneringen, nollställ sessionen
-        if (appState.currentUser && appState.currentUser.role === 'player') {
-            appState.currentUser = null;
-            saveUser();
+        // Nollställ allt till startskärm om den aktiva togs bort
+        if (appState.activeTournamentId === tourneyId) {
+            appState.activeTournamentId = null;
+            if (appState.currentUser && appState.currentUser.role === 'player') {
+                appState.currentUser = null;
+                saveUser();
+            }
         }
 
         try {
@@ -1280,7 +1475,16 @@
 
         document.title = 'Pinta Padel Tour – Turneringsmotor';
 
-        saveState();
+        saveState(true);
+        if (db) {
+            db.collection('tournaments').doc(tourneyId).set({
+                isDeleted: true,
+                deletedAt: tourney.deletedAt,
+                updatedAt: tourney.updatedAt
+            }, { merge: true }).catch((err) => {
+                console.warn('Kunde inte markera raderad i Firestore:', err);
+            });
+        }
         renderApp();
         playDelete();
         showUndoToast(tourney);
@@ -1292,10 +1496,21 @@
 
         const tourney = appState.deletedTournaments.splice(idx, 1)[0];
         delete tourney.deletedAt;
+        tourney.isDeleted = false;
+        tourney.updatedAt = Date.now();
+        tourney.syncedToCloud = true;
         appState.tournaments.unshift(tourney);
         appState.activeTournamentId = tourney.id;
 
-        saveState();
+        saveState(true);
+        if (db) {
+            db.collection('tournaments').doc(tourneyId).set({
+                isDeleted: false,
+                updatedAt: tourney.updatedAt
+            }, { merge: true }).catch((err) => {
+                console.warn('Kunde inte återställa i Firestore:', err);
+            });
+        }
         initCloudSync();
         renderApp();
         switchView('viewPlayers');
@@ -1423,7 +1638,8 @@
             if (elHeaderTitle) elHeaderTitle.textContent = 'Pinta Padel';
             if (elHeaderSub) elHeaderSub.textContent = 'Ingen aktiv turnering';
 
-            const totalSaved = appState.tournaments.length + appState.deletedTournaments.length;
+            const activeTourneys = appState.tournaments.filter(t => !t.isDeleted);
+            const totalSaved = activeTourneys.length + appState.deletedTournaments.length;
             const btnArchive = document.getElementById('btnStartArchive');
             const countEl = document.getElementById('startArchiveCount');
             if (btnArchive) {
@@ -1910,7 +2126,8 @@
         }
 
         if (archiveCount) {
-            const count = appState.tournaments.length + appState.deletedTournaments.length;
+            const activeTourneys = appState.tournaments.filter(t => !t.isDeleted);
+            const count = activeTourneys.length + appState.deletedTournaments.length;
             archiveCount.textContent = `${count} sparade turneringar`;
         }
     }
@@ -2021,18 +2238,20 @@
         const activeList = document.getElementById('archiveActiveList');
         const trashList = document.getElementById('archiveTrashList');
 
+        const activeTourneys = appState.tournaments.filter(t => !t.isDeleted);
+
         if (activeList) {
             activeList.innerHTML = '';
-            if (appState.tournaments.length === 0) {
+            if (activeTourneys.length === 0) {
                 activeList.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">Inga sparade turneringar</span>';
             } else {
-                appState.tournaments.forEach(t => {
+                activeTourneys.forEach(t => {
                     const item = document.createElement('div');
                     item.className = 'archive-item';
                     item.innerHTML = `
                         <div class="archive-item-info">
                             <div class="archive-item-title">${escapeHtml(t.name)}</div>
-                            <div class="archive-item-sub">${new Date(t.createdAt).toLocaleDateString('sv-SE')} · ${t.players.length}/8 spelare</div>
+                            <div class="archive-item-sub">${new Date(t.createdAt).toLocaleDateString('sv-SE')} · ${(t.players || []).length}/8 spelare</div>
                         </div>
                         <div class="archive-item-actions">
                             <button type="button" class="btn btn-secondary btn-sm select-btn">Öppna</button>
@@ -2042,7 +2261,7 @@
                         appState.activeTournamentId = t.id;
                         appState.currentRoundIndex = 0;
                         appState.currentSubMatchIndex = 0;
-                        saveState();
+                        saveState(true);
                         initCloudSync();
                         renderApp();
                         closeModal('modalArchive');
@@ -2064,7 +2283,7 @@
                     item.innerHTML = `
                         <div class="archive-item-info">
                             <div class="archive-item-title">${escapeHtml(t.name)}</div>
-                            <div class="archive-item-sub">Raderad · ${t.players.length} spelare</div>
+                            <div class="archive-item-sub">Raderad · ${(t.players || []).length} spelare</div>
                         </div>
                         <div class="archive-item-actions">
                             <button type="button" class="btn btn-secondary btn-sm restore-btn">Återställ</button>
@@ -2386,10 +2605,16 @@
 
         document.getElementById('btnEmptyTrash').addEventListener('click', () => {
             if (confirm('Vill du tömma papperskorgen permanent? Detta kan inte ångras.')) {
+                if (db && appState.deletedTournaments.length > 0) {
+                    appState.deletedTournaments.forEach(t => {
+                        db.collection('tournaments').doc(t.id).delete().catch(() => {});
+                    });
+                }
                 appState.deletedTournaments = [];
-                saveState();
+                saveState(true);
                 renderArchiveModal();
                 playDelete();
+                showToast('Papperskorgen är tömd.');
             }
         });
 
@@ -2666,29 +2891,12 @@
         loadState();
         setupEventListeners();
         renderApp();
+        initTournamentsListSync();
         initCloudSync();
 
         // Standardvy: Spelare om turnering finns, annars Startskärm
         if (getActiveTournament()) {
             switchView('viewPlayers');
-        }
-
-        // Hämta färsk version direkt från molnet om turnering är aktiv
-        if (appState.activeTournamentId && db) {
-            db.collection('tournaments').doc(appState.activeTournamentId).get().then(doc => {
-                if (doc.exists) {
-                    const cloudTourney = doc.data();
-                    const idx = appState.tournaments.findIndex(t => t.id === appState.activeTournamentId);
-                    if (idx >= 0) {
-                        appState.tournaments[idx] = cloudTourney;
-                    } else {
-                        appState.tournaments.push(cloudTourney);
-                    }
-                    saveState(true);
-                    renderApp();
-                    checkAutoInvitePrompt();
-                }
-            }).catch(e => console.warn('Kunde inte läsa aktiv turnering vid start:', e));
         }
 
         setTimeout(checkAutoInvitePrompt, 350);
